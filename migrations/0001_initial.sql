@@ -1,0 +1,13 @@
+PRAGMA foreign_keys=ON;
+CREATE TABLE IF NOT EXISTS seasons(id TEXT PRIMARY KEY, name TEXT NOT NULL, year INTEGER NOT NULL UNIQUE, budget INTEGER NOT NULL CHECK(budget>=0), start_date TEXT NOT NULL, end_date TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY, name TEXT NOT NULL, phone TEXT UNIQUE, role TEXT NOT NULL CHECK(role IN ('owner','manager','finance','member','viewer')), active INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY, season_id TEXT NOT NULL REFERENCES seasons(id), title TEXT NOT NULL, committee TEXT NOT NULL, assignee TEXT NOT NULL, due_date TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('todo','doing','done')), priority TEXT NOT NULL, created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS events(id TEXT PRIMARY KEY, season_id TEXT NOT NULL REFERENCES seasons(id), title TEXT NOT NULL, location TEXT NOT NULL, event_date TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS invoices(id TEXT PRIMARY KEY, season_id TEXT NOT NULL REFERENCES seasons(id), vendor TEXT NOT NULL, number TEXT NOT NULL, amount INTEGER NOT NULL CHECK(amount>0), category TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('draft','review','approved','rejected')), created_by TEXT NOT NULL, reviewed_by TEXT, notes TEXT NOT NULL, file_name TEXT, file_type TEXT, file_data TEXT, extraction TEXT, version INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, UNIQUE(season_id,vendor,number));
+CREATE TABLE IF NOT EXISTS audit(id TEXT PRIMARY KEY, actor TEXT NOT NULL, action TEXT NOT NULL, entity_id TEXT NOT NULL, detail TEXT NOT NULL, created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS sessions(token_hash TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),expires_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS rate_limits(key TEXT PRIMARY KEY,count INTEGER NOT NULL,expires_at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS tasks_season ON tasks(season_id);
+CREATE INDEX IF NOT EXISTS events_season ON events(season_id);
+CREATE INDEX IF NOT EXISTS invoices_season ON invoices(season_id);
+INSERT OR IGNORE INTO users(id,name,phone,role) VALUES('owner','مدير الديوان',NULL,'owner');

@@ -1,0 +1,61 @@
+/* Preserve the existing brand styles; only Next page and accessibility additions. */
+html {
+  scroll-padding-top: 24px;
+  scrollbar-width: none;
+}
+html::-webkit-scrollbar {
+  display: none;
+}
+.skip-link {
+  position: fixed;
+  inset-block-start: 12px;
+  inset-inline-start: 12px;
+  z-index: 100;
+  padding: 12px 20px;
+  background: #fff;
+  color: #273a2b;
+  transform: translateY(-180%);
+}
+.skip-link:focus {
+  transform: translateY(0);
+}
+.nailat-world a.nw-outline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.nailat-world .nw-links {
+  flex-direction: row;
+}
+.nailat-world .nw-links a {
+  color: inherit;
+}
+.nailat-world .nw-story .nw-section-label,
+.nailat-world .nw-archive .nw-section-label {
+  color: #79623f;
+}
+.nailat-world .nw-archive-head > p,
+.nailat-world .nw-year-tabs button:not([aria-selected="true"]),
+.nailat-world .nw-season-note p,
+.nailat-world .nw-archive-note,
+.nailat-world .nw-footer,
+.nailat-world .nw-footer-social > span,
+.nailat-world .nw-footer-social a {
+  color: #5f6656;
+}
+.nailat-world .nw-edition-number {
+  color: #967943;
+}
+.nailat-world .nw-footer-social > span {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .nailat-world .reveal {
+    opacity: 1 !important;
+    transform: none !important;
+    animation: none !important;
+  }
+}

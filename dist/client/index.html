@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#141414" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>ديوان النائلات | مساحة العمل</title>
+    <meta
+      name="description"
+      content="ديوان النائلات مساحة خاصة تجمع المشاريع والمهام والمصاريف والأصول بهوية أصيلة وتنظيم مرن"
+    />
+    <link rel="icon" href="/brand/isotype.png" />
+    <link rel="stylesheet" href="/style.css?v=790345e43645" />
+    <link rel="stylesheet" href="/heritage.css?v=1d7ab2fd7cba" />
+    <link rel="stylesheet" href="/premium.css?v=57a9363cee39" />
+    <link
+      rel="preload"
+      href="/fonts/nailat-arabic.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <script src="/typography.js?v=cb6b3d84b1dc" defer></script>
+    <script src="/workspace.js?v=df78658bf7d2" defer></script>
+    <script src="/workspace-views.js?v=ad104af075e7" defer></script>
+    <script src="/motion.js?v=5049708db3a1" defer></script>
+    <script src="/vendor/jspdf.umd.min.js?v=e6551fcdc32f" defer></script>
+    <script src="/vendor/qrcode.js?v=79ec86f82856" defer></script>
+    <script src="/exports.js?v=669fc8fa1821" defer></script>
+    <script src="/asset-labels.js?v=87d4ba6bbc1a" defer></script>
+    <script src="/app.js?v=7218be35c44a" defer></script>
+  </head>
+  <body>
+    <aside class="sidebar" id="sidebar">
+      <a class="brand" href="#heritage"
+        ><span class="brand-mark"
+          ><img src="/brand/isotype.png" alt="شعار منقية النائلات" /></span
+        ><span>ديوان النائلات<small>فريق العمل</small></span></a
+      >
+      <div class="workspace-label">مساحة العمل <span>خاص</span></div>
+      <nav id="nav"></nav>
+      <div class="side-bottom">
+        <button class="side-profile" data-page="profile">
+          <span class="avatar avatar-gold" id="userAvatar">ع</span
+          ><span id="userName">ديوان النائلات<small>مساحة خاصة</small></span
+          ><span>⌄</span>
+        </button>
+      </div>
+    </aside>
+    <button
+      class="menu-backdrop"
+      data-action="menu"
+      aria-label="إغلاق قائمة التنقل"
+      tabindex="-1"
+    ></button>
+    <button
+      class="sidebar-toggle"
+      data-action="sidebar-toggle"
+      aria-label="إخفاء القائمة"
+      aria-controls="sidebar"
+      aria-expanded="true"
+      title="إخفاء القائمة"
+    >
+      <svg
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        aria-hidden="true"
+      >
+        <path d="m9 5 7 7-7 7" />
+      </svg>
+    </button>
+    <div class="shell">
+      <header class="topbar">
+        <div class="breadcrumb">
+          <button
+            class="icon-btn mobile-menu"
+            data-action="menu"
+            aria-label="فتح القائمة"
+            aria-controls="sidebar"
+            aria-expanded="false"
+          >
+            ☰</button
+          ><span>الديوان</span><i>/</i><strong id="crumb">نظرة الديوان</strong>
+        </div>
+        <div class="top-actions">
+          <button
+            class="sanad-trigger"
+            data-action="assistant"
+            aria-label="اسأل سَنَد"
+            aria-haspopup="dialog"
+            hidden
+          >
+            <img
+              class="sanad-brand-mark"
+              src="/brand/isotype.png"
+              width="32"
+              height="32"
+              alt=""
+            /><span class="sanad-trigger-label">سَنَد</span
+            ><svg
+              class="sanad-chat-glyph"
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              aria-hidden="true"
+            >
+              <path d="M20 11a8 8 0 0 1-8 8H5l-3 3V11a9 9 0 0 1 18 0Z" />
+              <path d="M7 10h8M7 14h5" />
+            </svg>
+          </button>
+          <button class="search-trigger" data-action="search">
+            <span data-icon="search"></span><span>ابحث في الديوان</span
+            ><kbd>⌘ K</kbd></button
+          ><button
+            class="icon-btn"
+            data-action="notifications"
+            aria-label="الإشعارات"
+          >
+            <span data-icon="bell"></span><b id="notificationCount"></b></button
+          ><button
+            class="icon-btn"
+            data-action="theme"
+            aria-label="تغيير المظهر"
+          >
+            <span data-icon="moon"></span></button
+          ><button class="button button-dark compact" data-action="quick">
+            <span>＋</span> إضافة
+          </button>
+        </div>
+      </header>
+      <main id="main" tabindex="-1">
+        <div class="boot">
+          <img src="/brand/isotype.png" alt="" />
+          <h1>ديوان النائلات</h1>
+          <p>جارٍ فتح مساحة العمل</p>
+          <span class="loader"></span>
+        </div>
+      </main>
+      <footer>
+        <span>ديوان النائلات <i></i> إرث يجمعنا وعمل يليق به</span
+        ><span id="syncState">مساحة خاصة</span>
+      </footer>
+    </div>
+    <dialog id="modal" class="modal">
+      <div class="modal-header">
+        <div>
+          <span class="eyebrow" id="modalEyebrow">ديوان النائلات</span>
+          <h2 id="modalTitle"></h2>
+        </div>
+        <button class="icon-btn" data-action="close-modal" aria-label="إغلاق">
+          ×
+        </button>
+      </div>
+      <div id="modalBody" class="modal-body"></div>
+    </dialog>
+    <dialog id="detail" class="detail-panel">
+      <div class="modal-header">
+        <span class="eyebrow">تفاصيل المهمة</span
+        ><button
+          class="icon-btn"
+          data-action="close-detail"
+          aria-label="إغلاق التفاصيل"
+        >
+          ×
+        </button>
+      </div>
+      <div id="detailBody" class="modal-body"></div>
+    </dialog>
+    <dialog id="assistant" class="assistant-panel">
+      <div class="assistant-header">
+        <img
+          class="sanad-header-mark"
+          src="/brand/isotype.png"
+          width="44"
+          height="44"
+          alt=""
+        />
+        <div>
+          <h2>سَنَد</h2>
+          <span>معك، من الفكرة إلى الإنجاز</span>
+        </div>
+        <button
+          class="icon-btn"
+          data-action="close-assistant"
+          aria-label="إغلاق المساعد"
+        >
+          ×
+        </button>
+      </div>
+      <div id="assistantBody"></div>
+    </dialog>
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  </body>
+</html>

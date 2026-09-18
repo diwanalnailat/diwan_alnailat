@@ -1,0 +1,51 @@
+{
+  "name": "diwan-almazayen",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "build": "npm run build:legacy \u0026\u0026 next build",
+    "dev": "node scripts/dev-next.mjs",
+    "format": "prettier --write worker.js lib public/app.js public/exports.js public/style.css public/index.html scripts tests db/schema.ts drizzle.config.ts",
+    "dev:legacy": "node scripts/dev.mjs",
+    "build:legacy": "node scripts/build.mjs",
+    "start": "next start --hostname 127.0.0.1 --port 4173",
+    "lint": "eslint app components lib/heritage next.config.mjs",
+    "typecheck": "next typegen \u0026\u0026 tsc --noEmit",
+    "test:heritage": "playwright test"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@fontsource-variable/noto-sans-arabic": "^5.3.0",
+    "@fontsource/tajawal": "^5.3.0",
+    "@playwright/test": "1.63.0",
+    "@types/node": "26.6.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@zxing/browser": "^0.1.5",
+    "drizzle-kit": "^0.31.10",
+    "drizzle-orm": "^0.45.2",
+    "eslint": "9.39.5",
+    "eslint-config-next": "16.3.5",
+    "jsdom": "^30.0.1",
+    "jspdf": "^4.2.1",
+    "leaflet": "^1.9.4",
+    "prettier": "^3.9.6",
+    "qrcode-generator": "^2.0.4",
+    "typescript": "6.0.3"
+  },
+  "overrides": {
+    "@esbuild-kit/core-utils": {
+      "esbuild": "^0.25.0"
+    }
+  },
+  "dependencies": {
+    "next": "16.3.5",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "engines": {
+    "node": "\u003e=22.22.2"
+  }
+}

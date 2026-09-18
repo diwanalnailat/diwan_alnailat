@@ -1,0 +1,48 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1789379979869,
+      "tag": "0000_left_morg",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1789398008271,
+      "tag": "0001_committees",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1789398702294,
+      "tag": "0002_financial_advances",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1789402089418,
+      "tag": "0003_governed_workflows",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1789469509913,
+      "tag": "0004_yellow_firebird",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1789500602505,
+      "tag": "0005_asset_numbers",
+      "breakpoints": true
+    }
+  ]
+}

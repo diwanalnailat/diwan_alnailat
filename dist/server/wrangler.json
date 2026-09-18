@@ -1,0 +1,22 @@
+{
+  "name": "diwan-almazayen",
+  "main": "index.js",
+  "compatibility_date": "2026-06-01",
+  "assets": {
+    "directory": "../client",
+    "binding": "ASSETS"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "diwan",
+      "migrations_dir": "../.openai/drizzle"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "BUCKET",
+      "bucket_name": "diwan-files"
+    }
+  ]
+}
