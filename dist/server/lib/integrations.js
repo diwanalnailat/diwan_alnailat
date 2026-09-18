@@ -1,5 +1,6 @@
 import { parse } from "./domain.js";
 import { boundedBody, httpsOrigin } from "./security.js";
+import { greenConfigured, greenWhatsApp } from "./green-api.js";
 export const integrationError = (message, status = 400) =>
   Object.assign(new Error(message), { status });
 export const rows = async (db, sql, ...args) =>
@@ -20,25 +21,33 @@ export function integrationStatus(env) {
     keys.every((k) => typeof env[k] === "string" && env[k].trim());
   const ai =
     env.AI_ENABLED === "true" && ready(["OPENAI_API_KEY", "OPENAI_MODEL"]);
+  const green = env.WHATSAPP_PROVIDER === "green_api";
   const wa =
     env.WHATSAPP_ENABLED === "true" &&
-    ready(["WHATSAPP_TOKEN", "WHATSAPP_PHONE_ID", "WHATSAPP_API_VERSION"]) &&
-    /^v\d+\.\d+$/.test(env.WHATSAPP_API_VERSION) &&
-    /^\d+$/.test(env.WHATSAPP_PHONE_ID);
+    (green
+      ? greenConfigured(env)
+      : ready([
+          "WHATSAPP_TOKEN",
+          "WHATSAPP_PHONE_ID",
+          "WHATSAPP_API_VERSION",
+        ]) &&
+        /^v\d+\.\d+$/.test(env.WHATSAPP_API_VERSION) &&
+        /^\d+$/.test(env.WHATSAPP_PHONE_ID));
   return {
     ai,
     whatsapp:
       wa &&
-      ready(["WHATSAPP_NOTIFICATION_TEMPLATE"]) &&
+      (green || ready(["WHATSAPP_NOTIFICATION_TEMPLATE"])) &&
       !!httpsOrigin(env.APP_BASE_URL),
     phone:
       wa &&
-      ready(["WHATSAPP_OTP_TEMPLATE", "OTP_SECRET"]) &&
+      ready(green ? ["OTP_SECRET"] : ["WHATSAPP_OTP_TEMPLATE", "OTP_SECRET"]) &&
       env.OTP_SECRET.length >= 32,
     voice: ai && ready(["OPENAI_TRANSCRIBE_MODEL"]),
     uploads: true,
-    webhook: ready(["WHATSAPP_APP_SECRET", "WHATSAPP_VERIFY_TOKEN"]),
-    mode: "sites_private",
+    webhook: !green && ready(["WHATSAPP_APP_SECRET", "WHATSAPP_VERIFY_TOKEN"]),
+    mode: env.DIWAN_RUNTIME || "sites_private",
+    whatsapp_provider: green ? "green_api" : "meta",
     ai_status: ai ? "configured" : "awaiting_configuration",
     whatsapp_status: wa ? "configured" : "awaiting_configuration",
   };
@@ -47,7 +56,7 @@ export async function limit(db, key, max, seconds) {
   const now = Date.now();
   const r = await db
     .prepare(
-      `INSERT INTO nl_integration_limits(key,hits,expires) VALUES(?,1,?) ON CONFLICT(key) DO UPDATE SET hits=CASE WHEN expires<? THEN 1 ELSE hits+1 END, expires=CASE WHEN expires<? THEN excluded.expires ELSE expires END RETURNING hits`,
+      `INSERT INTO nl_integration_limits(key,hits,expires) VALUES(?,1,?) ON CONFLICT(key) DO UPDATE SET hits=CASE WHEN nl_integration_limits.expires<? THEN 1 ELSE nl_integration_limits.hits+1 END, expires=CASE WHEN nl_integration_limits.expires<? THEN excluded.expires ELSE nl_integration_limits.expires END RETURNING hits`,
     )
     .bind(key, now + seconds * 1000, now, now)
     .first();
@@ -129,6 +138,8 @@ export function equal(a, b) {
   return diff === 0;
 }
 export async function whatsapp(env, phone, template, parameters, otp = false) {
+  if (env.WHATSAPP_PROVIDER === "green_api")
+    return greenWhatsApp(env, phone, parameters, otp);
   if (
     !env.WHATSAPP_TOKEN ||
     !/^v\d+\.\d+$/.test(env.WHATSAPP_API_VERSION || "") ||

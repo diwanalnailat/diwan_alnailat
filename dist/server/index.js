@@ -3955,7 +3955,7 @@ export async function dispatchNotifications(env) {
     ) {
       await db
         .prepare(
-          "INSERT INTO nl_delivery_jobs(id,status,updated) VALUES(?,'not_eligible',?) ON CONFLICT(id) DO UPDATE SET status='not_eligible',updated=excluded.updated WHERE status='retry'",
+          "INSERT INTO nl_delivery_jobs(id,status,updated) VALUES(?,'not_eligible',?) ON CONFLICT(id) DO UPDATE SET status='not_eligible',updated=excluded.updated WHERE nl_delivery_jobs.status='retry'",
         )
         .bind(n.id, now())
         .run();
@@ -3963,7 +3963,7 @@ export async function dispatchNotifications(env) {
     }
     const claim = await db
       .prepare(
-        "INSERT INTO nl_delivery_jobs(id,status,attempts,updated) VALUES(?,'sending',1,?) ON CONFLICT(id) DO UPDATE SET status='sending',attempts=attempts+1,updated=excluded.updated WHERE status='retry' AND next_at<? AND attempts<4 RETURNING id",
+        "INSERT INTO nl_delivery_jobs(id,status,attempts,updated) VALUES(?,'sending',1,?) ON CONFLICT(id) DO UPDATE SET status='sending',attempts=nl_delivery_jobs.attempts+1,updated=excluded.updated WHERE nl_delivery_jobs.status='retry' AND nl_delivery_jobs.next_at<? AND nl_delivery_jobs.attempts<4 RETURNING id",
       )
       .bind(n.id, now(), Date.now())
       .first();

@@ -7,6 +7,9 @@ const rows = async (db, sql, ...args) =>
       .all()
   ).results;
 export async function legacyInfo(db) {
+  // The old pre-Diwan archive lives in SQLite, not the new PostgreSQL schema.
+  if (db.dialect === "postgres")
+    return { available: false, counts: {}, imported: false };
   const names = await rows(
     db,
     "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('seasons','tasks','events','invoices','users')",

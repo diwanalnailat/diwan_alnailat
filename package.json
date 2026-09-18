@@ -5,18 +5,23 @@
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.mjs",
-    "build": "npm run build:legacy \u0026\u0026 next build",
+    "test:postgres": "node scripts/test-postgres.mjs",
+    "build": "npm run build:legacy && next build",
     "dev": "node scripts/dev-next.mjs",
+    "db:check": "node --env-file-if-exists=.env.local scripts/check-supabase.mjs",
+    "db:setup-storage": "node --env-file=.env.local scripts/setup-supabase-storage.mjs",
+    "whatsapp:check": "node --env-file=.env.local scripts/check-green-api.mjs",
     "format": "prettier --write worker.js lib public/app.js public/exports.js public/style.css public/index.html scripts tests db/schema.ts drizzle.config.ts",
     "dev:legacy": "node scripts/dev.mjs",
     "build:legacy": "node scripts/build.mjs",
     "start": "next start --hostname 127.0.0.1 --port 4173",
     "lint": "eslint app components lib/heritage next.config.mjs",
-    "typecheck": "next typegen \u0026\u0026 tsc --noEmit",
+    "typecheck": "next typegen && tsc --noEmit",
     "test:heritage": "playwright test"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",
+    "@electric-sql/pglite": "0.5.8",
     "@fontsource-variable/noto-sans-arabic": "^5.3.0",
     "@fontsource/tajawal": "^5.3.0",
     "@playwright/test": "1.63.0",
@@ -42,10 +47,11 @@
   },
   "dependencies": {
     "next": "16.3.5",
+    "postgres": "3.4.9",
     "react": "19.3.0",
     "react-dom": "19.3.0"
   },
   "engines": {
-    "node": "\u003e=22.22.2"
+    "node": ">=22.22.2"
   }
 }

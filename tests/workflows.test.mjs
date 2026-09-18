@@ -7,13 +7,18 @@ import { database } from "../scripts/sqlite.mjs";
 const origin = "https://diwan.test";
 const owner = { id: "site-owner", email: "owner@example.test" };
 const full = [{ resource: "*", action: "*", scope: "all", effect: "allow" }];
-export async function app() {
-  const DB = database();
-  for (const f of fs
-    .readdirSync("drizzle")
-    .filter((f) => f.endsWith(".sql"))
-    .sort())
-    await DB.exec(fs.readFileSync("drizzle/" + f, "utf8"));
+export async function app({ sqliteOnly = false } = {}) {
+  const usePostgres =
+    !sqliteOnly && process.env.DIWAN_TEST_DATABASE === "postgres";
+  const DB = usePostgres
+    ? await (await import("./postgres-support.mjs")).postgresTestDatabase()
+    : database();
+  if (!usePostgres)
+    for (const f of fs
+      .readdirSync("drizzle")
+      .filter((f) => f.endsWith(".sql"))
+      .sort())
+      await DB.exec(fs.readFileSync("drizzle/" + f, "utf8"));
   const objects = new Map(),
     BUCKET = {
       put: async (k, b) => objects.set(k, b),
@@ -244,7 +249,7 @@ test("permissions cannot be delegated beyond authority or remove own management"
   a.DB.close();
 });
 test("legacy copy is explicit, one-time and does not rewrite original records", async () => {
-  const a = await app();
+  const a = await app({ sqliteOnly: true });
   await a.req("state");
   await a.DB.exec(fs.readFileSync("migrations/0001_initial.sql", "utf8"));
   await a.DB.prepare("INSERT INTO seasons VALUES(?,?,?,?,?,?,?,?)")

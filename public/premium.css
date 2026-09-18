@@ -1,15 +1,4 @@
 /* Diwan Al Nailat — the working identity */
-/* Hide scrollbar chrome throughout the platform without disabling scrolling. */
-*,
-*::before,
-*::after {
-  scrollbar-width: none !important;
-}
-*::-webkit-scrollbar {
-  display: none;
-  width: 0;
-  height: 0;
-}
 .sidebar-toggle {
   position: fixed;
   top: 92px;
@@ -235,8 +224,6 @@ svg {
 }
 .sidebar nav {
   gap: 6px;
-  scrollbar-width: thin;
-  scrollbar-color: #56735c transparent;
 }
 .nav {
   min-height: 44px;
@@ -1803,8 +1790,6 @@ a.focus-row:hover {
   color: #7b6f80;
 }
 .table-wrap {
-  scrollbar-width: thin;
-  scrollbar-color: #c5c7b8 transparent;
 }
 .data-table {
   font-size: 12px;

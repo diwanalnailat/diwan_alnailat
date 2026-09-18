@@ -3,18 +3,28 @@ import fs from "node:fs";
 import worker, { money, permitted } from "../worker.js";
 import { DEFAULT_SETTINGS } from "../lib/domain.js";
 import { database } from "../scripts/sqlite.mjs";
+import { afterEach } from "node:test";
+const postgresDatabases = [];
+afterEach(async () => {
+  for (const db of postgresDatabases.splice(0)) await db.close();
+});
 const origin = "https://diwan.test";
 export const owner = { id: "site-owner", email: "owner@example.test" };
 export const full = [
   { resource: "*", action: "*", scope: "all", effect: "allow" },
 ];
 export async function app() {
-  const DB = database();
-  for (const f of fs
-    .readdirSync("drizzle")
-    .filter((f) => f.endsWith(".sql"))
-    .sort())
-    await DB.exec(fs.readFileSync("drizzle/" + f, "utf8"));
+  const usePostgres = process.env.DIWAN_TEST_DATABASE === "postgres";
+  const DB = usePostgres
+    ? await (await import("./postgres-support.mjs")).postgresTestDatabase()
+    : database();
+  if (usePostgres) postgresDatabases.push(DB);
+  if (!usePostgres)
+    for (const f of fs
+      .readdirSync("drizzle")
+      .filter((f) => f.endsWith(".sql"))
+      .sort())
+      await DB.exec(fs.readFileSync("drizzle/" + f, "utf8"));
   const objects = new Map(),
     BUCKET = {
       put: async (k, b) => objects.set(k, b),

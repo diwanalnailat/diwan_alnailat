@@ -1,10 +1,6 @@
 /* Preserve the existing brand styles; only Next page and accessibility additions. */
 html {
   scroll-padding-top: 24px;
-  scrollbar-width: none;
-}
-html::-webkit-scrollbar {
-  display: none;
 }
 .skip-link {
   position: fixed;

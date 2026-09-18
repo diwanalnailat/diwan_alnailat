@@ -4,6 +4,7 @@ import "../public/style.css";
 import "../public/heritage.css";
 import "../public/premium.css";
 import "./globals.css";
+import "../public/scrollbars.css";
 
 export const metadata: Metadata = {
   title: "النائلات | ديوان النائلات",

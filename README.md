@@ -31,7 +31,7 @@ npm run build
 npm run dev
 ```
 
-التطوير على `127.0.0.1:4173` فقط. بياناته منفصلة في `/tmp/diwan-local` أو `DIWAN_LOCAL_DATA`. هوية المطور المحلية لا تدخل الإنتاج. البناء يولد `generated.js` و`dist/`؛ لا تعدلهما يدويًا. ملفات البيئة لا تدخل Git.
+التطوير على `127.0.0.1:4173` فقط. عند ضبط `DATABASE_URL` في `.env.local` تستخدم مساحة العمل Supabase PostgreSQL والمرفقات Supabase Storage الخاص؛ راجع [إعداد Supabase](docs/SUPABASE.md). دون هذا المتغير تستخدم SQLite في `/tmp/diwan-local` أو `DIWAN_LOCAL_DATA`. هوية المطور المحلية لا تدخل الإنتاج. البناء يولد `generated.js` و`dist/`؛ لا تعدلهما يدويًا. ملفات البيئة لا تدخل Git.
 
 بعد فتح الديوان: **الإعدادات ← الربط والتكاملات ← فحص جاهزية الديوان**، و**الإعدادات ← تخصيص سَنَد**. راجع [التشغيل](docs/OPERATIONS.md) و[التحقق](docs/VALIDATION.md).
 # diwan_alnailat
