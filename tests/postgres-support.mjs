@@ -8,6 +8,7 @@ export async function postgresTestDatabase() {
     "CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS;",
   );
   await db.exec(await fs.readFile("supabase/diwan-initial.sql", "utf8"));
+  await db.exec(await fs.readFile("supabase/drizzle/0002_whatsapp_sessions.sql", "utf8"));
   const query = (client) => async (sql, params) => {
     const result = await client.query(sql, params);
     return {

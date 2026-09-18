@@ -11,7 +11,7 @@ Requires Node 22.22.2+. Keep these server-only values in ignored `.env.local`:
 - `SUPABASE_SECRET_KEY` or legacy `SUPABASE_SERVICE_ROLE_KEY`: server credential, never a public browser variable.
 - `SUPABASE_STORAGE_BUCKET=diwan-files`.
 
-A publishable key alone cannot access application records. All 26 tables have RLS and no anon/authenticated CRUD grants. Existing Worker/domain authorization still applies. Login-free developer identity remains restricted to loopback; it must never be exposed on a public host.
+A publishable key alone cannot access application records. All 27 tables (including login sessions) have RLS and no anon/authenticated CRUD grants. Existing Worker/domain authorization still applies. Login-free developer identity remains restricted to loopback; it must never be exposed on a public host.
 
 ## Schema and existing data
 
@@ -38,4 +38,4 @@ Verified 2026-09-18: real remote write/read in a fully rolled-back test transact
 
 ## Deployment boundary
 
-The local workspace is connected. Production Vercel configuration now includes server database/Storage credentials; `/api/health` verifies its database connection. At the user's explicit request, production workspace APIs remain closed (403) until standalone WhatsApp OTP login is implemented. See [Green API and admin setup](GREEN_API.md). The original private Site/D1/R2 audience and data remain unchanged. Deployment evidence is recorded in task-state.md.
+The local workspace is connected. Production Vercel configuration includes server database/Storage credentials; `/api/health` verifies its database connection. Production access uses WhatsApp OTP and private server sessions; unauthenticated APIs return 401. See [Green API and admin setup](GREEN_API.md). The original private Site/D1/R2 audience and data remain unchanged. Deployment evidence is recorded in task-state.md.

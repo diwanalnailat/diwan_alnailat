@@ -1,16 +1,13 @@
-// Production remains closed until independent WhatsApp OTP sessions are enabled.
-// Development rewrites these requests to the loopback-only Worker.
-const closed = () =>
-  Response.json(
-    { error: "لوحة التحكم مغلقة مؤقتًا حتى تفعيل تسجيل الدخول." },
-    { status: 403, headers: { "Cache-Control": "no-store" } },
-  );
+import { workspaceRequest } from "../../../lib/workspace-server.js";
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+// Do not forward Next's context as the workspace HTML flag.
+const handle = (req) => workspaceRequest(req);
 export {
-  closed as GET,
-  closed as POST,
-  closed as PUT,
-  closed as PATCH,
-  closed as DELETE,
-  closed as HEAD,
-  closed as OPTIONS,
+  handle as GET,
+  handle as POST,
+  handle as PUT,
+  handle as PATCH,
+  handle as DELETE,
 };

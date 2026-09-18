@@ -13,7 +13,7 @@ export async function GET() {
     const db = await database;
     await db.prepare("SELECT key FROM nl_settings LIMIT 1").first();
     return Response.json(
-      { status: "ok", workspace: "closed" },
+      { status: "ok", workspace: "protected" },
       {
         headers: { "Cache-Control": "no-store" },
       },

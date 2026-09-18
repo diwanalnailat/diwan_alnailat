@@ -396,3 +396,20 @@ export const integrationLimits = pgTable("nl_integration_limits", {
   hits: integer("hits").notNull().default(0),
   expires: bigint("expires", { mode: "number" }).notNull(),
 }).enableRLS();
+
+export const sessions = pgTable(
+  "nl_sessions",
+  {
+    hash: text("hash").primaryKey(),
+    memberId: text("member_id")
+      .notNull()
+      .references(() => members.id),
+    phone: text("phone").notNull(),
+    expires: bigint("expires", { mode: "number" }).notNull(),
+    created: bigint("created", { mode: "number" }).notNull(),
+  },
+  (t) => [
+    index("nl_sessions_member").on(t.memberId),
+    index("nl_sessions_expiry").on(t.expires),
+  ],
+).enableRLS();

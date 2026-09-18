@@ -1,0 +1,179 @@
+.diwan-login {
+  --login-green: #203e33;
+  --login-ink: #263c32;
+  --login-muted: #60695f;
+  --login-gold: #9c7c48;
+  --login-paper: #fffefa;
+  --login-border: #d9dacf;
+  min-height: 100svh;
+  padding: 36px 24px 56px;
+  background: var(--canvas);
+  color: var(--login-ink);
+  font-family: Tajawal, sans-serif;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.login-back {
+  align-self: flex-start;
+  color: var(--login-green);
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  font-size: 15px;
+  text-decoration: underline;
+  text-underline-offset: 5px;
+}
+.login-panel {
+  width: 100%;
+  max-width: 460px;
+  margin: auto;
+  padding: 36px 40px;
+  background: var(--login-paper);
+  border: 1px solid var(--login-border);
+  border-top: 3px solid var(--login-gold);
+  border-radius: 12px;
+  text-align: center;
+}
+.login-mark {
+  object-fit: contain;
+  margin: 0 auto 14px;
+  display: block;
+}
+.login-eyebrow {
+  color: var(--login-gold);
+  font-weight: 700;
+  font-size: 16px;
+  margin: 0 0 6px;
+}
+.login-panel h1 {
+  font-size: 30px;
+  line-height: 1.5;
+  margin: 0 0 8px;
+}
+.login-intro,
+.login-footnote {
+  color: var(--login-muted);
+  font-size: 15px;
+  line-height: 1.8;
+  margin: 0;
+}
+.login-footnote {
+  padding-top: 24px;
+  margin-top: 24px;
+  border-top: 1px solid var(--login-border);
+  font-size: 13px;
+}
+.login-form {
+  text-align: right;
+  margin-top: 28px;
+  display: grid;
+  gap: 10px;
+}
+.login-form > label {
+  font-size: 15px;
+  font-weight: 600;
+}
+.login-form > input {
+  width: 100%;
+  min-height: 52px;
+  border: 1px solid var(--login-border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  background: var(--login-paper);
+  color: var(--login-ink);
+  font: inherit;
+  font-size: 18px;
+}
+.login-form small {
+  color: var(--login-muted);
+  font-size: 13px;
+  line-height: 1.7;
+}
+.login-form .login-consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  line-height: 1.8;
+  font-weight: 400;
+  margin: 8px 0;
+  font-size: 14px;
+}
+.login-consent input {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  margin: 3px 0;
+  accent-color: var(--login-green);
+}
+.login-form .login-code {
+  text-align: center;
+  font-size: 28px;
+  letter-spacing: 10px;
+  padding-inline: 12px;
+}
+.login-submit {
+  min-height: 52px;
+  padding: 10px 18px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--login-paper);
+  background: var(--login-green);
+  font: inherit;
+  font-size: 17px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.login-form button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.login-form :focus-visible {
+  outline: 3px solid var(--login-gold);
+  outline-offset: 3px;
+}
+.login-error {
+  color: #9a3024;
+  font-size: 14px;
+  margin: 4px 0;
+}
+.login-notice {
+  color: var(--login-muted);
+  font-size: 14px;
+  margin: 4px 0;
+}
+.login-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.login-actions button {
+  background: none;
+  border: 0;
+  color: var(--login-green);
+  font: inherit;
+  font-size: 14px;
+  min-height: 44px;
+  cursor: pointer;
+  padding: 4px;
+}
+.login-phone-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 12px;
+  font-size: 15px;
+}
+@media (max-width: 520px) {
+  .diwan-login {
+    padding: 16px 16px 32px;
+  }
+  .login-panel {
+    padding: 28px 22px;
+    margin: 24px auto;
+  }
+  .login-panel h1 {
+    font-size: 27px;
+  }
+}

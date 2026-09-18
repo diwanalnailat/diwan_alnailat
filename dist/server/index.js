@@ -132,7 +132,9 @@ async function actor(req, env) {
   const siteId = req.headers.get("oai-authenticated-user-id"),
     email = req.headers.get("oai-authenticated-user-email")?.toLowerCase();
   if (!siteId || !email) fail("سجّل الدخول للوصول إلى الديوان", 401);
-  let u = await one(env.DB, "SELECT * FROM nl_members WHERE site_id=?", siteId);
+  let u = env.AUTHENTICATED_MEMBER_ID
+    ? await one(env.DB, "SELECT * FROM nl_members WHERE id=?", env.AUTHENTICATED_MEMBER_ID)
+    : await one(env.DB, "SELECT * FROM nl_members WHERE site_id=?", siteId);
   if (
     !u &&
     env.SITE_OWNER_EMAIL &&

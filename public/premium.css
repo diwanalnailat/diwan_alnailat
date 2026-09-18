@@ -1,4 +1,15 @@
 /* Diwan Al Nailat — the working identity */
+.session-logout button {
+  width: 100%;
+  min-height: 44px;
+  margin-top: 8px;
+  border: 1px solid #b9c5b755;
+  border-radius: 8px;
+  color: #fbf6e9;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
 .sidebar-toggle {
   position: fixed;
   top: 92px;
