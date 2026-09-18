@@ -1,0 +1,11 @@
+.env*
+.git
+.next
+.vercel
+node_modules
+diwan-alnailat
+dist
+test-results
+playwright-report
+*.log
+*.sqlite*
