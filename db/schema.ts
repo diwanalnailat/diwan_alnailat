@@ -393,3 +393,45 @@ export const integrationLimits = sqliteTable("nl_integration_limits", {
   hits: integer("hits").notNull().default(0),
   expires: integer("expires").notNull(),
 });
+
+export const joinRequests = sqliteTable(
+  "nl_join_requests",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    phone: text("phone").notNull(),
+    reason: text("reason").notNull(),
+    committeeId: text("committee_id").references(() => committees.id),
+    status: text("status").notNull().default("verifying"),
+    assignedTo: text("assigned_to").references(() => members.id),
+    memberId: text("member_id").references(() => members.id),
+    decidedBy: text("decided_by").references(() => members.id),
+    policyVersion: integer("policy_version").notNull(),
+    policySnapshot: text("policy_snapshot").notNull(),
+    consentAt: text("consent_at").notNull(),
+    verifiedAt: text("verified_at"),
+    created: text("created").notNull(),
+    updated: text("updated").notNull(),
+    version: integer("version").notNull().default(1),
+  },
+  (t) => [
+    index("nl_join_assigned_status").on(t.assignedTo, t.status),
+    index("nl_join_committee").on(t.committeeId),
+    index("nl_join_created").on(t.created),
+    uniqueIndex("nl_join_pending_phone")
+      .on(t.phone)
+      .where(sql`${t.status} IN ('pending','referred')`),
+    check(
+      "nl_join_status",
+      sql`${t.status} IN ('verifying','pending','referred','approved','rejected')`,
+    ),
+    check(
+      "nl_join_verified",
+      sql`${t.status}='verifying' OR ${t.verifiedAt} IS NOT NULL`,
+    ),
+    check(
+      "nl_join_referral",
+      sql`${t.status}<>'referred' OR (${t.assignedTo} IS NOT NULL AND ${t.committeeId} IS NOT NULL)`,
+    ),
+  ],
+);

@@ -53,14 +53,23 @@ export function integrationStatus(env) {
   };
 }
 export async function limit(db, key, max, seconds) {
+  return limits(db, [[key, max, seconds]]);
+}
+// Count all request limits atomically in one database round trip.
+export async function limits(db, entries) {
   const now = Date.now();
   const r = await db
     .prepare(
-      `INSERT INTO nl_integration_limits(key,hits,expires) VALUES(?,1,?) ON CONFLICT(key) DO UPDATE SET hits=CASE WHEN nl_integration_limits.expires<? THEN 1 ELSE nl_integration_limits.hits+1 END, expires=CASE WHEN nl_integration_limits.expires<? THEN excluded.expires ELSE nl_integration_limits.expires END RETURNING hits`,
+      `INSERT INTO nl_integration_limits(key,hits,expires) VALUES ${entries.map(() => "(?,1,?)").join(",")} ON CONFLICT(key) DO UPDATE SET hits=CASE WHEN nl_integration_limits.expires<? THEN 1 ELSE nl_integration_limits.hits+1 END, expires=CASE WHEN nl_integration_limits.expires<? THEN excluded.expires ELSE nl_integration_limits.expires END RETURNING key,hits`,
     )
-    .bind(key, now + seconds * 1000, now, now)
-    .first();
-  if (r.hits > max)
+    .bind(
+      ...entries.flatMap(([key, , seconds]) => [key, now + seconds * 1000]),
+      now,
+      now,
+    )
+    .all();
+  const maxima = new Map(entries.map(([key, max]) => [key, max]));
+  if (r.results.some((row) => row.hits > maxima.get(row.key)))
     throw integrationError("وصلت للحد المؤقت للاستخدام. حاول لاحقًا.", 429);
 }
 export async function providerFetch(env, url, options) {
@@ -206,7 +215,14 @@ export async function requestOtp(req, env, b) {
       "التحقق بالجوال جاهز للربط بواتساب؛ لم يُرسل رمز بعد.",
       503,
     );
-  const phone = String(b.phone || "").replace(/[\s-]/g, "");
+  let phone = String(b.phone || "")
+    .replace(/[٠-٩]/g, (n) => String(n.charCodeAt(0) - 1632))
+    .replace(/[۰-۹]/g, (n) => String(n.charCodeAt(0) - 1776))
+    .replace(/[\s()-]/g, "");
+  if (/^05\d{8}$/.test(phone)) phone = "+966" + phone.slice(1);
+  else if (/^5\d{8}$/.test(phone)) phone = "+966" + phone;
+  else if (/^9665\d{8}$/.test(phone)) phone = "+" + phone;
+  else if (/^009665\d{8}$/.test(phone)) phone = "+" + phone.slice(2);
   if (!/^\+[1-9]\d{7,14}$/.test(phone))
     throw integrationError("أدخل الجوال مع رمز الدولة.");
   if (b.consent !== true)

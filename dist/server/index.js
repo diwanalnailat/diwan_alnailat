@@ -1,4 +1,14 @@
 import { validateLocation } from "./lib/location.js";
+import {
+  joinAccess,
+  joinDashboard,
+  joinPolicy,
+  isJoinAdmin,
+  mayReadJoin,
+  visibleJoinRequests,
+  saveJoinPolicy,
+  reviewJoin,
+} from "./lib/join-requests.js";
 import { ASSET_CATEGORIES, ASSET_BATCH_LIMIT } from "./lib/assets.js";
 import { jsonBody, formBody, httpsOrigin } from "./lib/security.js";
 import {
@@ -104,6 +114,7 @@ const digest = async (s) =>
     .map((n) => n.toString(16).padStart(2, "0"))
     .join("");
 const tables = {
+  join_requests: "nl_join_requests",
   committees: "nl_committees",
   projects: "nl_projects",
   tasks: "nl_tasks",
@@ -133,7 +144,11 @@ async function actor(req, env) {
     email = req.headers.get("oai-authenticated-user-email")?.toLowerCase();
   if (!siteId || !email) fail("سجّل الدخول للوصول إلى الديوان", 401);
   let u = env.AUTHENTICATED_MEMBER_ID
-    ? await one(env.DB, "SELECT * FROM nl_members WHERE id=?", env.AUTHENTICATED_MEMBER_ID)
+    ? await one(
+        env.DB,
+        "SELECT * FROM nl_members WHERE id=?",
+        env.AUTHENTICATED_MEMBER_ID,
+      )
     : await one(env.DB, "SELECT * FROM nl_members WHERE site_id=?", siteId);
   if (
     !u &&
@@ -621,6 +636,7 @@ async function state(db, c, filter = "", env = {}) {
   );
   if (projects.length && !modules.includes("projects"))
     modules.push("projects");
+  const joinRows = await visibleJoinRequests(db, c);
   const ownNotifications = (
     await all(
       db,
@@ -629,6 +645,8 @@ async function state(db, c, filter = "", env = {}) {
       "in_app",
     )
   ).filter((n) => {
+    if (n.resource === "join_requests")
+      return joinRows.some((r) => r.id === n.entity_id);
     const r = (
       n.resource === "tasks"
         ? taskRows
@@ -647,6 +665,7 @@ async function state(db, c, filter = "", env = {}) {
     : [];
   return {
     user: normalize({ ...c.u, email: c.u.email }),
+    join_requests_access: joinAccess(c),
     modules,
     effective_grants: effectiveGrants(c.u, c.bundles),
     projects,
@@ -849,13 +868,19 @@ async function handle(req, env) {
     fail("طلب غير موثوق", 403);
   if (p === "/api/auth/status") {
     const siteId = req.headers.get("oai-authenticated-user-id");
-    const member = siteId
+    const member = env.AUTHENTICATED_MEMBER_ID
       ? await one(
           db,
-          "SELECT name,status,verified FROM nl_members WHERE site_id=?",
-          siteId,
+          "SELECT name,status,verified FROM nl_members WHERE id=?",
+          env.AUTHENTICATED_MEMBER_ID,
         )
-      : null;
+      : siteId
+        ? await one(
+            db,
+            "SELECT name,status,verified FROM nl_members WHERE site_id=?",
+            siteId,
+          )
+        : null;
     return json({
       ...integrationStatus(env),
       account: member
@@ -877,6 +902,13 @@ async function handle(req, env) {
   if (p === "/api/registration/request")
     fail("ابدأ بتوثيق الجوال عبر واتساب لإرسال طلب الانضمام", 400);
   const c = await context(req, env);
+  if (p === "/api/join-requests" && req.method === "GET")
+    return json(await joinDashboard(db, c));
+  if (p === "/api/join-policy" && req.method === "GET")
+    return json({
+      policy: await joinPolicy(db),
+      can_edit_policy: isJoinAdmin(c),
+    });
   if (p === "/api/agent/history" && req.method === "GET") {
     c.need("assistant", "view");
     return json({ turns: await sanadHistory(env, c, await state(db, c)) });
@@ -1231,6 +1263,12 @@ async function handle(req, env) {
       return json(parse(prior.result));
     }
   }
+  if (p === "/api/join-requests/forward")
+    return json(await reviewJoin(db, c, b, "forward"));
+  if (p === "/api/join-requests/decide")
+    return json(await reviewJoin(db, c, b, "decide"));
+  if (p === "/api/join-policy/save")
+    return json(await saveJoinPolicy(db, c, b));
   if (p === "/api/legacy/import") {
     c.need("settings", "manage");
     c.need("projects", "create");
@@ -3940,20 +3978,34 @@ export async function dispatchNotifications(env) {
     } catch {
       entity = null;
     }
+    const recipient = m ? withCommittees(m, committees) : null;
+    const joinNotification = n.resource === "join_requests";
+    const recipientContext = {
+      u: recipient,
+      committees,
+      bundles,
+      can: (r, a, o) => permitted(recipient, r, a, o, bundles),
+    };
+    const configuredAdmin =
+      joinNotification &&
+      m?.phone === env.DIWAN_ADMIN_PHONE &&
+      isJoinAdmin(recipientContext);
     if (
       !m ||
       m.status !== "active" ||
-      !m.verified ||
+      (!m.verified && !configuredAdmin) ||
       !m.phone ||
-      !pref?.whatsapp ||
+      (!pref?.whatsapp && !configuredAdmin) ||
       !entity ||
-      !permitted(
-        withCommittees(m, committees),
-        n.resource,
-        "view",
-        entity,
-        bundles,
-      )
+      !(joinNotification
+        ? mayReadJoin(recipientContext, entity)
+        : permitted(
+            withCommittees(m, committees),
+            n.resource,
+            "view",
+            entity,
+            bundles,
+          ))
     ) {
       await db
         .prepare(
@@ -3976,7 +4028,7 @@ export async function dispatchNotifications(env) {
       // Only minimal metadata leaves the platform; the link rechecks access on open.
       const deep =
         base.replace(/\/$/, "") +
-        "/#" +
+        (env.DIWAN_RUNTIME === "vercel_whatsapp" ? "/workspace#" : "/#") +
         n.resource +
         "?record=" +
         encodeURIComponent(n.entity_id);
@@ -3984,7 +4036,9 @@ export async function dispatchNotifications(env) {
         env,
         m.phone,
         env.WHATSAPP_NOTIFICATION_TEMPLATE,
-        [m.name, n.title, deep],
+        joinNotification && env.WHATSAPP_PROVIDER === "green_api"
+          ? [n.title]
+          : [m.name, n.title, deep],
       );
       await db.batch([
         db

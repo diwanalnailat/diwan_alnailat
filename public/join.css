@@ -1,0 +1,40 @@
+.join-request-details {
+  display: grid;
+  gap: 16px;
+  margin: 0 0 16px;
+}
+.join-request-details > div {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line, #dedfd4);
+}
+.join-request-details dt {
+  color: var(--muted, #637064);
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+.join-request-details dd {
+  margin: 0;
+  line-height: 1.9;
+  overflow-wrap: anywhere;
+}
+.join-preserve {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 2;
+}
+.join-policy-body {
+  max-width: 900px;
+}
+.join-requests-panel .data-table td {
+  vertical-align: top;
+}
+.join-requests-panel button {
+  min-height: 44px;
+}
+@media (max-width: 600px) {
+  .join-policy-body .section-heading {
+    align-items: flex-start;
+    gap: 12px;
+    flex-direction: column;
+  }
+}

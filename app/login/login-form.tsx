@@ -1,5 +1,8 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import SaudiPhoneInput, {
+  saudiLocalPhone,
+} from "../../components/saudi-phone-input";
 const digits = (s: string) =>
   s
     .replace(/[٠-٩]/g, (n) => String(n.charCodeAt(0) - 1632))
@@ -33,7 +36,7 @@ export default function LoginForm() {
         credentials: "same-origin",
         body: JSON.stringify(
           action === "request"
-            ? { phone: digits(phone), consent }
+            ? { phone: "+966" + saudiLocalPhone(phone), consent }
             : { challenge_id: challenge, code: digits(code) },
         ),
       });
@@ -72,23 +75,15 @@ export default function LoginForm() {
       {!challenge ? (
         <>
           <label htmlFor="login-phone">رقم الجوال</label>
-          <input
+          <SaudiPhoneInput
             id="login-phone"
-            name="phone"
-            type="tel"
-            dir="ltr"
-            autoComplete="tel"
-            inputMode="tel"
-            placeholder="05xxxxxxxx"
             value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            maxLength={25}
-            required
-            aria-describedby="phone-hint"
+            onChange={setPhone}
+            describedBy="phone-hint"
             disabled={busy}
           />
           <small id="phone-hint">
-            للأرقام السعودية يُضاف رمز الدولة +966 تلقائيًا.
+            أدخل رقم جوالك بدءًا من 5؛ رمز الدولة ثابت.
           </small>
           <label className="login-consent">
             <input
@@ -104,7 +99,7 @@ export default function LoginForm() {
       ) : (
         <>
           <p className="login-phone-summary">
-            رقم الجوال <b dir="ltr">{phone}</b>
+            رقم الجوال <b dir="ltr">+966{phone}</b>
           </p>
           <label htmlFor="login-code">رمز التحقق</label>
           <input

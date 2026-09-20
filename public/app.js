@@ -16,6 +16,9 @@
         })[c],
     );
   const paths = {
+    join_requests:
+      '<circle cx="9" cy="7" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3m1-11 2 2 4-4"/>',
+    join_policy: '<path d="M5 3h14v18H5zM8 8h8M8 12h8M8 16h5"/>',
     services:
       '<rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><path d="M14 17.5h7m-3.5-3.5v7"/>',
     decisions: '<path d="m8 12 3 3 5-6M9 3H5v18h14V3h-4M9 2h6v4H9z"/>',
@@ -65,6 +68,8 @@
   const icon = (name, size = 18) =>
     `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.projects}</svg>`;
   const labels = {
+    join_requests: "طلبات الانضمام",
+    join_policy: "شروط وسياسة الانضمام",
     overview: "نظرة الديوان",
     services: "مركز الخدمات",
     decisions: "مركز القرارات",
@@ -317,7 +322,7 @@
         "documents",
         "reports",
       ],
-      ["users", "settings", "audit"],
+      ["join_requests", "users", "join_policy", "settings", "audit"],
       ["heritage"],
     ];
     $("#nav").innerHTML = groups
@@ -508,7 +513,7 @@
         [
           ["member", "عضو لجنة"],
           ["manager", "مسؤول لجنة"],
-          ["supervisor", "مشرف متابعة"],
+          ["supervisor", "مشرف اللجنة وطلبات الانضمام المحالة"],
         ],
         m.role,
       ),
@@ -584,7 +589,7 @@
             c.id ? "disabled" : "required",
           ),
         )}${field("مدير اللجنة", select("manager_id", [["", "حدد مدير اللجنة"], ...S.people.map((p) => [p.id, p.name])], c.manager_id || "", access ? "" : "disabled"))}${field("المعتمد الثاني للمصاريف", select("second_approver_id", [["", "اختر صاحب صلاحية الاعتماد"], ...candidates.map((u) => [u.id, u.name])], c.config?.second_approver_id || "", access ? "" : "disabled"))}${field("بديل الاعتماد عند تعارض المصالح", select("review_delegate_id", [["", "اختر بديلًا عند الحاجة"], ...candidates.filter((u) => u.id !== c.config?.second_approver_id).map((u) => [u.id, u.name])], c.config?.review_delegate_id || "", access ? "" : "disabled"))}<p class="form-note full">البديل يراجع مصروف أحد المعتمدين، ولا يستطيع صاحب المصروف اعتماد طلبه. الأول مدير اللجنة. الثاني تختاره هنا من أصحاب صلاحية الاعتماد؛ ويمكن اختيار الشخص نفسه لعدة لجان. ظهور الاسم لا يمنح صلاحية جديدة.</p>${field("اختصاص اللجنة", textarea("description", c.description || "", 3), true)}`,
-      )}${part("2", "الأعضاء ونطاق الوصول", "عضو: مهامه ومصاريفه. مدير: متابعة اللجنة واعتمادها. مشرف متابعة: الاطلاع دون اعتماد.", `<div class="full" id="committeeMembers">${c.members.map(committeeMemberRow).join("")}</div>${access ? '<button type="button" class="button full" data-action="membership-add">+ إضافة عضو من الديوان</button>' : ""}`)}${part("3", "بنود الصرف المعتمدة", "لا يكتب العضو تصنيفًا حرًا. يختار بندًا من هذه القائمة عند رفع المصروف.", `<div class="catalog-head"><span>اسم البند</span><span>المخصص — ر.س</span><span>التفعيل</span></div><div class="full" id="budgetCatalog">${(c.config?.budgetLines || []).map(budgetRow).join("")}</div>${access ? '<button type="button" class="button full" data-action="budget-add">+ بند صرف</button>' : ""}${access ? field("الوسوم المعتمدة — سطر لكل وسم", textarea("catalog_tags", (c.config?.tags || []).join("\n"), 3), true) : ""}<p class="form-note full">تعطيل البند يمنع استخدامه في طلبات جديدة ويحفظ العمليات السابقة. مراحل المهام موحدة: بدء، تنفيذ، مساندة عند الحاجة، مراجعة المدير، اكتمال معتمد.</p>`)}${actions("حفظ اللجنة وربط الوصول")}</form>`,
+      )}${part("2", "الأعضاء ومشرفو اللجنة", "يمكن تعيين أكثر من مشرف باختيار صفة مشرف اللجنة. لا تظهر لهم طلبات الانضمام إلا بعد إحالة الإدارة إلى المشرف المحدد. صلاحيات اعتماد المهام والمصاريف تبقى حسب الدور والمنح.", `<div class="full" id="committeeMembers">${c.members.map(committeeMemberRow).join("")}</div>${access ? '<button type="button" class="button full" data-action="membership-add">+ إضافة عضو أو مشرف من الديوان</button>' : ""}`)}${part("3", "بنود الصرف المعتمدة", "لا يكتب العضو تصنيفًا حرًا. يختار بندًا من هذه القائمة عند رفع المصروف.", `<div class="catalog-head"><span>اسم البند</span><span>المخصص — ر.س</span><span>التفعيل</span></div><div class="full" id="budgetCatalog">${(c.config?.budgetLines || []).map(budgetRow).join("")}</div>${access ? '<button type="button" class="button full" data-action="budget-add">+ بند صرف</button>' : ""}${access ? field("الوسوم المعتمدة — سطر لكل وسم", textarea("catalog_tags", (c.config?.tags || []).join("\n"), 3), true) : ""}<p class="form-note full">تعطيل البند يمنع استخدامه في طلبات جديدة ويحفظ العمليات السابقة. مراحل المهام موحدة: بدء، تنفيذ، مساندة عند الحاجة، مراجعة المدير، اكتمال معتمد.</p>`)}${actions("حفظ اللجنة وربط الوصول")}</form>`,
       async (fd, f) => {
         const b = {
           ...formData(fd),
@@ -1613,6 +1618,175 @@
       <footer class="nw-footer"><img src="/brand/signature.png" width="617" height="165" alt="منقية النائلات الوضح" loading="lazy"><div class="nw-footer-social"><span>تابع النائلات</span><a href="https://x.com/alnailat" target="_blank" rel="noopener noreferrer" aria-label="حساب النائلات على منصة X"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m4 3 16 18h-4L0 3h4ZM20 3 4 21" transform="translate(2 0) scale(.85 1)"/></svg><bdi>@alnailat</bdi></a></div><a href="#heritage" data-scroll="main">العودة للأعلى ↑</a></footer>
     </div>`;
   }
+  const joinStatusNames = {
+    pending: "بانتظار الإدارة",
+    referred: "محال إلى المشرف",
+    approved: "مقبول",
+    rejected: "مرفوض",
+  };
+  function joinRequestsPage() {
+    queueMicrotask(() => loadJoinRequests());
+    return (
+      heading(
+        "طلبات الانضمام",
+        "طلبات موثقة برمز واتساب؛ الموافقة تنشئ حساب العضو وتربطه بجهة الانضمام.",
+      ) +
+      '<section class="panel join-requests-panel" id="joinRequestsPanel" aria-busy="true"><p class="panel-body" role="status">جارٍ تحميل الطلبات…</p></section>'
+    );
+  }
+  async function loadJoinRequests() {
+    const container = $("#joinRequestsPanel");
+    if (!container) return;
+    try {
+      const result = await api("join-requests");
+      if (!container.isConnected) return;
+      container.innerHTML =
+        `<div class="panel-body"><p class="muted">${result.is_admin ? "يمكنك قبول الطلب مباشرة أو إحالته إلى أحد مشرفي اللجنة المطلوبة." : "تظهر هنا الطلبات التي أحالتها الإدارة إليك فقط."}</p></div>` +
+        (result.requests.length
+          ? table(
+              [
+                "مقدم الطلب",
+                "رقم الجوال",
+                "جهة الانضمام",
+                "الحالة",
+                "المشرف المكلّف",
+                "التاريخ",
+                "",
+              ],
+              result.requests.map(
+                (request) =>
+                  `<tr><td><strong>${esc(request.name)}</strong></td><td><bdi>${esc(request.phone)}</bdi></td><td>${esc(request.committee_name || "الانضمام المباشر للديوان")}</td><td><span class="pill ${request.status === "approved" ? "green" : ""}">${esc(joinStatusNames[request.status] || request.status)}</span></td><td>${esc(request.assigned_name || "إدارة الديوان")}</td><td>${date(request.created)}</td><td>${btn("عرض الطلب", "join-request-open", request.id, "button-ghost compact", "arrow")}</td></tr>`,
+              ),
+            )
+          : empty(
+              "لا توجد طلبات انضمام",
+              result.is_admin
+                ? "ستظهر الطلبات هنا بعد توثيق رقم الجوال."
+                : "لم تحِل الإدارة إليك أي طلب انضمام.",
+            ));
+    } catch (error) {
+      if (container.isConnected)
+        container.innerHTML = `<div class="panel-body"><p class="form-error" role="alert">${esc(error.message)}</p>${btn("إعادة المحاولة", "join-requests-reload", "", "button-ghost", "")}</div>`;
+    } finally {
+      if (container.isConnected) container.setAttribute("aria-busy", "false");
+    }
+  }
+  async function joinRequestDetail(id, forward = false) {
+    const result = await api("join-requests");
+    const request = result.requests.find((item) => item.id === id);
+    if (!request)
+      throw new Error("الطلب غير متاح لك أو تغيرت إحالته. حدّث القائمة.");
+    const supervisors = result.supervisors.filter(
+      (item) => item.committee_id === request.committee_id,
+    );
+    const details = `<dl class="join-request-details"><div><dt>الاسم</dt><dd>${esc(request.name)}</dd></div><div><dt>رقم الجوال الموثق</dt><dd><bdi>${esc(request.phone)}</bdi></dd></div><div><dt>جهة الانضمام</dt><dd>${esc(request.committee_name || "الانضمام المباشر للديوان")}</dd></div><div><dt>الحالة</dt><dd>${esc(joinStatusNames[request.status] || request.status)}</dd></div><div><dt>سبب الانضمام</dt><dd class="join-preserve">${esc(request.reason)}</dd></div>${request.assigned_name ? `<div><dt>المشرف المكلّف</dt><dd>${esc(request.assigned_name)}</dd></div>` : ""}</dl>`;
+    if (forward) {
+      if (!request.can_forward || !request.committee_id)
+        throw new Error("لا يمكن إحالة هذا الطلب إلى مشرف.");
+      if (!supervisors.length)
+        throw new Error(
+          "لا يوجد مشرف متاح في هذه اللجنة. عيّن مشرفًا من إدارة اللجنة أولًا.",
+        );
+      modal(
+        "إحالة طلب الانضمام",
+        `<form class="form-grid"><div class="full">${details}</div>${field("المشرف في اللجنة المطلوبة", select("supervisor_id", [["", "اختر مشرفًا"], ...supervisors.map((item) => [item.id, item.name])], request.assigned_to || "", "required"), true)}<p class="form-note full">سيظهر الطلب للمشرف المحدد فقط، ويمكنه قبوله أو رفضه.</p>${actions("إحالة الطلب")}</form>`,
+        async (fd) => {
+          await api("join-requests/forward", {
+            id: request.id,
+            version: request.version,
+            supervisor_id: fd.get("supervisor_id"),
+          });
+          toast("تمت إحالة الطلب إلى المشرف المحدد");
+        },
+      );
+      return;
+    }
+    const forwardButton =
+      request.can_forward && request.committee_id
+        ? btn(
+            "إحالة إلى مشرف اللجنة",
+            "join-request-forward",
+            request.id,
+            "button-ghost",
+            "arrow",
+          )
+        : "";
+    modal(
+      "طلب الانضمام",
+      request.can_decide
+        ? `<form class="form-grid"><div class="full">${details}</div>${field(
+            "قرارك بشأن الطلب",
+            select(
+              "decision",
+              [
+                ["", "اختر القرار"],
+                ["approve", "قبول الطلب وإنشاء الحساب"],
+                ["reject", "رفض الطلب"],
+              ],
+              "",
+              "required",
+            ),
+            true,
+          )}<p class="form-note full">عند القبول يُنشأ حساب بالاسم ورقم الجوال الموثق، ويمكن للعضو الدخول برمز واتساب.</p>${actions("تأكيد القرار", forwardButton)}</form>`
+        : details + forwardButton,
+      request.can_decide
+        ? async (fd) => {
+            const decision = fd.get("decision");
+            await api("join-requests/decide", {
+              id: request.id,
+              version: request.version,
+              decision,
+            });
+            toast(
+              decision === "approve"
+                ? "تم قبول الطلب وتفعيل حساب العضو"
+                : "تم رفض الطلب",
+            );
+          }
+        : undefined,
+    );
+  }
+  function joinPolicyPage() {
+    queueMicrotask(() => loadJoinPolicy());
+    return (
+      heading(
+        "شروط وسياسة الانضمام",
+        "الشروط التي يوافق عليها المتقدم قبل توثيق جواله وإرسال طلبه.",
+      ) +
+      '<section class="panel" id="joinPolicyPanel" aria-busy="true"><p class="panel-body" role="status">جارٍ تحميل السياسة…</p></section>'
+    );
+  }
+  async function loadJoinPolicy() {
+    const container = $("#joinPolicyPanel");
+    if (!container) return;
+    try {
+      const { policy, can_edit_policy } = await api("join-policy");
+      if (!container.isConnected) return;
+      container.innerHTML = `<div class="panel-body join-policy-body"><div class="section-heading"><h2>${esc(policy.title)}</h2>${can_edit_policy ? btn("تعديل الشروط والسياسة", "join-policy-edit", "", "button-ghost compact", "edit") : ""}</div><p class="muted">الإصدار ${num(policy.version)}</p><div class="join-preserve">${esc(policy.content)}</div></div>`;
+    } catch (error) {
+      if (container.isConnected)
+        container.innerHTML = `<div class="panel-body"><p class="form-error" role="alert">${esc(error.message)}</p>${btn("إعادة المحاولة", "join-policy-reload", "", "button-ghost", "")}</div>`;
+    } finally {
+      if (container.isConnected) container.setAttribute("aria-busy", "false");
+    }
+  }
+  async function joinPolicyForm() {
+    const { policy, can_edit_policy } = await api("join-policy");
+    if (!can_edit_policy)
+      throw new Error("تعديل سياسة الانضمام متاح للإدارة فقط.");
+    modal(
+      "تعديل شروط وسياسة الانضمام",
+      `<form class="form-grid">${field("العنوان", input("title", policy.title, "text", 'required maxlength="160"'), true)}${field("الشروط والسياسة", textarea("content", policy.content, 12, 'required maxlength="20000"'), true)}<p class="form-note full">تظهر النسخة الجديدة للمتقدمين عند تقديم طلب جديد. تحفظ الموافقات السابقة مع إصدار السياسة الذي وافق عليه المتقدم.</p>${actions("نشر الشروط والسياسة")}</form>`,
+      async (fd) => {
+        await api("join-policy/save", {
+          title: fd.get("title"),
+          content: fd.get("content"),
+          version: policy.version,
+        });
+        toast("تم تحديث شروط وسياسة الانضمام");
+      },
+    );
+  }
   function render(animate = true) {
     if (!S) return;
     document.body.classList.toggle("landing-mode", page === "heritage");
@@ -1638,6 +1812,8 @@
       assets: assetsPage,
       documents: documentsPage,
       users: membersPage,
+      join_requests: joinRequestsPage,
+      join_policy: joinPolicyPage,
       audit: auditPage,
       heritage: heritagePage,
       settings: settingsPage,
@@ -1857,7 +2033,8 @@
     for (const x of fd.getAll(name))
       if (x instanceof File && x.size) f.append("attachments", x);
     if (name === "voiceFiles" && form)
-      for (const x of draftVoiceFiles.get(form) || []) f.append("attachments", x);
+      for (const x of draftVoiceFiles.get(form) || [])
+        f.append("attachments", x);
     if (entity) f.set("attach_later", "true");
     f.set("purpose", purpose);
     f.set("committee_id", fd.get("committee_id") || committee || "");
@@ -4503,6 +4680,10 @@
     );
   }
   async function phoneForm(join = false) {
+    if (join) {
+      location.assign("/join");
+      return;
+    }
     let info = S?.integrations;
     try {
       const r = await api("auth/status");
@@ -4520,15 +4701,24 @@
         : S
           ? "توثيق رقم الجوال"
           : "دخول الديوان",
-      `<form id="phoneForm" class="form-grid"><div class="join-progress full"><span class="active" id="joinStepPhone">1 · رقم الجوال</span><span id="joinStepCode">2 · رمز واتساب</span><span>3 · ${S ? "التوثيق" : "حالة الحساب"}</span></div>${join ? field("الاسم *", input("name", "", "text", "required"), true) : ""}${field("رقم الجوال *", input("phone", S?.user?.phone || "", "tel", 'required dir="ltr" placeholder="+9665XXXXXXXX"'), true)}${join ? '<p class="form-note full">بعد توثيق رقمك، يصل الطلب لإدارة الديوان لاعتماده وتحديد صلاحياتك.</p>' : ""}<label class="checkbox-line full"><input name="consent" type="checkbox" required> أوافق على استلام رمز التحقق عبر واتساب.</label><label class="checkbox-line full"><input name="notifications" type="checkbox"> استلام تنبيهات المهام والاعتمادات عبر واتساب.</label><div id="otpFields" class="full" hidden>${field("رمز التحقق", input("code", "", "text", 'inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" dir="ltr"'), true)}</div><p class="form-error full" hidden></p><div class="form-actions full"><button type="submit" class="button button-dark" ${available ? "" : "disabled"}>إرسال رمز التحقق</button><button type="button" class="button" id="resendOtp" hidden>إعادة إرسال الرمز</button></div>${!available ? '<p class="form-note full">التسجيل بالجوال غير متاح حاليًا. تواصل مع إدارة الديوان للانضمام.</p>' : ""}${!join && !S ? '<button type="button" class="text-link full" data-action="join-dيوان">ليس لديك حساب؟ اطلب الانضمام</button>' : ""}</form>`,
+      `<form id="phoneForm" class="form-grid"><div class="join-progress full"><span class="active" id="joinStepPhone">1 · رقم الجوال</span><span id="joinStepCode">2 · رمز واتساب</span><span>3 · ${S ? "التوثيق" : "حالة الحساب"}</span></div>${join ? field("الاسم *", input("name", "", "text", "required"), true) : ""}${field("رقم الجوال *", `<div class="saudi-phone-field" dir="ltr"><span class="saudi-phone-prefix" aria-label="رمز دولة السعودية +966">+966</span>${input("phone", (S?.user?.phone || "").replace(/^\+966/, ""), "tel", 'required dir="ltr" inputmode="tel" autocomplete="tel-national" placeholder="5XXXXXXXX" pattern="5[0-9]{8}" maxlength="20"')}</div>`, true)}${join ? '<p class="form-note full">بعد توثيق رقمك، يصل الطلب لإدارة الديوان لاعتماده وتحديد صلاحياتك.</p>' : ""}<label class="checkbox-line full"><input name="consent" type="checkbox" required> أوافق على استلام رمز التحقق عبر واتساب.</label><label class="checkbox-line full"><input name="notifications" type="checkbox"> استلام تنبيهات المهام والاعتمادات عبر واتساب.</label><div id="otpFields" class="full" hidden>${field("رمز التحقق", input("code", "", "text", 'inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" dir="ltr"'), true)}</div><p class="form-error full" hidden></p><div class="form-actions full"><button type="submit" class="button button-dark" ${available ? "" : "disabled"}>إرسال رمز التحقق</button><button type="button" class="button" id="resendOtp" hidden>إعادة إرسال الرمز</button></div>${!available ? '<p class="form-note full">التسجيل بالجوال غير متاح حاليًا. تواصل مع إدارة الديوان للانضمام.</p>' : ""}${!join && !S ? '<button type="button" class="text-link full" data-action="join-dيوان">ليس لديك حساب؟ اطلب الانضمام</button>' : ""}</form>`,
     );
     const f = $("#phoneForm"),
       button = f.querySelector("[type=submit]"),
       err = f.querySelector(".form-error");
+    const phoneInput = f.elements.namedItem("phone");
+    phoneInput.oninput = () => {
+      phoneInput.value = phoneInput.value
+        .replace(/[\u0660-\u0669]/g, (n) => String(n.charCodeAt(0) - 1632))
+        .replace(/[\u06f0-\u06f9]/g, (n) => String(n.charCodeAt(0) - 1776))
+        .replace(/[^0-9]/g, "")
+        .replace(/^(?:00966|966)/, "")
+        .replace(/^0(?=5)/, "");
+    };
     let challenge = "";
     const request = async () => {
       const r = await api("auth/request", {
-        phone: f.elements.namedItem("phone").value,
+        phone: "+966" + f.elements.namedItem("phone").value.replace(/^0/, ""),
         consent: f.elements.namedItem("consent").checked,
       });
       challenge = r.challenge_id;
@@ -4749,7 +4939,7 @@
         ? S.notifications
             .map(
               (n) =>
-                `<button class="notification ${n.status === "unread" ? "unread" : ""}" data-action="${n.resource === "tasks" ? "task" : n.resource === "advances" ? "advance" : "expense"}" data-id="${n.entity_id}"><span class="activity-icon">${icon(n.resource)}</span><span><strong>${esc(n.title)}</strong><p>${esc(n.body)}</p><small>${date(n.created)}</small></span></button>`,
+                `<button class="notification ${n.status === "unread" ? "unread" : ""}" data-action="${n.resource === "join_requests" ? "join-request-open" : n.resource === "tasks" ? "task" : n.resource === "advances" ? "advance" : "expense"}" data-id="${esc(n.entity_id)}"><span class="activity-icon">${icon(n.resource)}</span><span><strong>${esc(n.title)}</strong><p>${esc(n.body)}</p><small>${date(n.created)}</small></span></button>`,
             )
             .join("")
         : empty("أنت على اطلاع", "ستظهر هنا الإسنادات وقرارات اعتماد مصاريفك."),
@@ -4906,6 +5096,21 @@
     )
       $("#assistant").close();
     switch (a) {
+      case "join-requests-reload":
+        await loadJoinRequests();
+        break;
+      case "join-request-open":
+        await joinRequestDetail(id);
+        break;
+      case "join-request-forward":
+        await joinRequestDetail(id, true);
+        break;
+      case "join-policy-reload":
+        await loadJoinPolicy();
+        break;
+      case "join-policy-edit":
+        await joinPolicyForm();
+        break;
       case "service-filter":
         serviceFilter = el.dataset.filterValue;
         render();

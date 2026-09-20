@@ -52,7 +52,9 @@ export async function greenWhatsApp(env, phone, parameters, otp) {
     throw Object.assign(new Error("رقم الجوال غير صالح."), { status: 400 });
   const message = otp
     ? `رمز التحقق لديوان النائلات: ${String(parameters[0])}\nلا تشارك الرمز مع أحد.`
-    : `ديوان النائلات\n${String(parameters[0])}\n${String(parameters[1])}\n${String(parameters[2])}`;
+    : parameters.length === 1
+      ? String(parameters[0])
+      : `ديوان النائلات\n${String(parameters[0])}\n${String(parameters[1])}\n${String(parameters[2])}`;
   const result = await greenRequest(env, "sendMessage", {
     chatId: `${number}@c.us`,
     message,

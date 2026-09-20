@@ -7,9 +7,42 @@ import {
   sessionMember,
   normalizeLoginPhone,
   SESSION_COOKIE,
+  ensureOrigin,
 } from "../lib/login.js";
 import worker from "../worker.js";
 const phone = "+966500000001";
+test("local origin aliases require matching Host and port without weakening production", () => {
+  const req = (origin, host = "127.0.0.1:4173", site = "same-origin") =>
+    new Request("http://localhost:4173/auth/join/request", {
+      method: "POST",
+      headers: { origin, host, "sec-fetch-site": site },
+    });
+  const dev = { NODE_ENV: "development" };
+  assert.doesNotThrow(() => ensureOrigin(req("http://127.0.0.1:4173"), dev));
+  assert.throws(() => ensureOrigin(req("http://evil.invalid:4173"), dev), {
+    status: 403,
+  });
+  assert.throws(() => ensureOrigin(req("http://127.0.0.1:4174"), dev), {
+    status: 403,
+  });
+  assert.throws(
+    () => ensureOrigin(req("http://127.0.0.1:4173", "evil.invalid"), dev),
+    { status: 403 },
+  );
+  assert.throws(
+    () =>
+      ensureOrigin(req("http://127.0.0.1:4173", undefined, "cross-site"), dev),
+    { status: 403 },
+  );
+  assert.throws(
+    () =>
+      ensureOrigin(req("http://127.0.0.1:4173"), {
+        NODE_ENV: "production",
+        APP_BASE_URL: "https://diwan.test",
+      }),
+    { status: 403 },
+  );
+});
 function request(body, cookies = "", origin = "https://diwan.test") {
   return new Request("https://diwan.test/auth/otp/request", {
     method: "POST",

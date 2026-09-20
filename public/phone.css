@@ -1,0 +1,46 @@
+.saudi-phone-field {
+  display: flex;
+  align-items: stretch;
+  direction: ltr;
+  min-width: 0;
+  width: 100%;
+  min-height: 52px;
+  border: 1px solid var(--login-border, #d9dacf);
+  border-radius: 8px;
+  background: var(--login-paper, #fffefa);
+  overflow: hidden;
+}
+.saudi-phone-prefix {
+  display: flex;
+  align-items: center;
+  padding: 10px 16px;
+  border-right: 1px solid var(--login-border, #d9dacf);
+  background: #f2f1e9;
+  color: #203e33;
+  font-size: 17px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.saudi-phone-field input {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  min-height: 50px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--login-ink, #263c32);
+  padding: 10px 14px;
+  font: inherit;
+  font-size: 18px;
+  direction: ltr;
+  text-align: left;
+}
+.saudi-phone-field:focus-within {
+  outline: 2px solid #9c7c48;
+  outline-offset: 3px;
+}
+.saudi-phone-field input:focus {
+  outline: none;
+  box-shadow: none;
+}

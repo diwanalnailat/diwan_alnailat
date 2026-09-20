@@ -177,6 +177,11 @@ export async function maintain(env) {
     db.prepare("DELETE FROM nl_otp WHERE expires<?").bind(at - 86400000),
     db
       .prepare(
+        "DELETE FROM nl_join_requests WHERE status='verifying' AND created<?",
+      )
+      .bind(new Date(at - 86400000).toISOString()),
+    db
+      .prepare(
         "DELETE FROM nl_integration_limits WHERE expires<? AND key<>'maintenance:lease'",
       )
       .bind(at - 86400000),

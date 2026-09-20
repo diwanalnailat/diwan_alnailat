@@ -43,6 +43,13 @@
       "when": 1789500602505,
       "tag": "0005_asset_numbers",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1789856136937,
+      "tag": "0006_join_requests",
+      "breakpoints": true
     }
   ]
 }

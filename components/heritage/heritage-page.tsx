@@ -227,7 +227,7 @@ function DiwanEntry() {
       </p>
       <div className="nw-diwan-actions">
         <EntryLink />
-        <a className="nw-outline" href="/workspace?join=1#heritage">
+        <a className="nw-outline" href="/join">
           طلب الانضمام
         </a>
       </div>
