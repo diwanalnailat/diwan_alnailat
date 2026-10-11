@@ -25,6 +25,9 @@ export default function LoginPage() {
         <p className="login-footnote">
           الدخول متاح لأعضاء الديوان المسجلين والمفعّلين.
         </p>
+        <a className="login-join" href="/join">
+          طلب الانضمام
+        </a>
       </section>
     </main>
   );
