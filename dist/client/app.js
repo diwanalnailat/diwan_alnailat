@@ -68,6 +68,7 @@
   const icon = (name, size = 18) =>
     `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.projects}</svg>`;
   const labels = {
+    heritage_results: "نتائج المواسم",
     join_requests: "طلبات الانضمام",
     join_policy: "شروط وسياسة الانضمام",
     overview: "نظرة الديوان",
@@ -322,7 +323,7 @@
         "documents",
         "reports",
       ],
-      ["join_requests", "users", "join_policy", "settings", "audit"],
+      ["join_requests", "users", "heritage_results", "join_policy", "settings", "audit"],
       ["heritage"],
     ];
     $("#nav").innerHTML = groups
@@ -1484,78 +1485,27 @@
     });
   });
   // Result records are keyed by edition, class and rank. Evidence is kept in docs/nailat-results.md.
-  const nailatAwards = [
-    {
-      season: "2021–2022",
-      edition: "6",
-      title: "بداية الحضور",
-      awards: [
-        { rank: 2, title: "بيرق المؤسس", date: "2022-01-08" },
-        { rank: 2, title: "فردي الجل", date: "2021-12-23" },
-        { rank: 4, title: "فردي الجل", date: "2021-12-23" },
-        { rank: 5, title: "فردي الجل", date: "2021-12-23" },
-        { rank: 5, title: "فردي الدق", date: "2021-12-23" },
-      ],
-    },
-    {
-      season: "2022–2023",
-      edition: "7",
-      title: "بيرقٌ ونخبة",
-      awards: [
-        { rank: 1, title: "بيرق المؤسس", date: "2023-01-09" },
-        { rank: 1, title: "نخبة النخبة", date: "2023-01-11" },
-        { rank: 2, title: "فردي الجل", camel: "رعادة", date: "2022-12-22" },
-      ],
-    },
-    {
-      season: "2023–2024",
-      edition: "8",
-      title: "صدارة الوضح",
-      awards: [
-        { rank: 1, title: "بيرق الموحد", date: "2023-12-31" },
-        { rank: 1, title: "نخبة النخبة", date: "2024-01-02" },
-        ...[1, 2, 3, 4, 5].map((rank) => ({ rank, title: "فردي الجل" })),
-      ],
-    },
-    {
-      season: "2024–2025",
-      edition: "9",
-      title: "رايةٌ تتجدد",
-      awards: [
-        { rank: 1, title: "بيرق الموحد", date: "2024-12-30" },
-        { rank: 1, title: "نخبة النخبة", date: "2024-12-31" },
-        ...[1, 2, 3, 4, 5, 7, 9, 10].map((rank) => ({
-          rank,
-          title: "فردي الجل",
-          date: "2024-12-19",
-        })),
-        ...[2, 5].map((rank) => ({
-          rank,
-          title: "فردي الدق · بكار",
-          date: "2024-12-18",
-        })),
-      ],
-    },
-    {
-      season: "2025–2026",
-      edition: "10",
-      title: "على درب الإنجاز",
-      awards: [
-        { rank: 1, title: "بيرق الموحد", date: "2025-12-30" },
-        ...[1, 2, 3, 4, 5].map((rank) => ({
-          rank,
-          title: "فردي الجل",
-          date: "2025-12-14",
-        })),
-      ],
-    },
-  ];
-  let nailatEdition = "10";
+  let nailatAwards = [];
+  let nailatEdition = "";
   function nailatSeasonPanel(y) {
-    return `<section class="nw-season" id="nailat-season-${y.edition}" role="tabpanel" aria-labelledby="nailat-tab-${y.edition}" tabindex="0" ${y.edition !== nailatEdition ? "hidden" : ""}>
-      <div class="nw-season-note"><span>مهرجان الملك عبدالعزيز للإبل</span><div class="nw-edition-number" aria-label="النسخة ${y.edition}">${y.edition.padStart(2, "0")}</div><h3>${y.title}</h3><p>نتائج منقية النائلات<br>لون الوضح · موسم <bdi>${y.season}</bdi></p></div>
-      <div class="nw-result-list">${y.awards.map((a) => `<article class="nw-result" data-rank="${a.rank}"><div class="nw-place" aria-label="المركز ${a.rank}"><small>المركز</small><strong>${a.rank}</strong></div><div><h3>${a.title}</h3><p>الوضح${a.camel ? ` <span aria-hidden="true">·</span> <span class="nw-camel-name">${a.camel}</span>` : ""}</p></div>${a.date ? `<time datetime="${a.date}" dir="ltr">${a.date.split("-").reverse().join(" / ")}</time>` : ""}</article>`).join("")}</div>
-    </section>`;
+    return `<section class="nw-season" id="nailat-season-${esc(y.edition)}" role="tabpanel" aria-labelledby="nailat-tab-${esc(y.edition)}" tabindex="0" ${y.edition !== nailatEdition ? "hidden" : ""}>
+      <div class="nw-season-note"><span>مهرجان الملك عبدالعزيز للإبل</span><div class="nw-edition-number" aria-label="النسخة ${esc(y.edition)}">${esc(y.edition.padStart(2, "0"))}</div><h3>${esc(y.title)}</h3><p>نتائج منقية النائلات<br>لون الوضح · موسم <bdi>${esc(y.season)}</bdi></p></div>
+      <div class="nw-result-list">${y.awards.map(a => `<article class="nw-result" data-rank="${a.rank}"><div class="nw-place" aria-label="المركز ${a.rank}"><small>المركز</small><strong>${a.rank}</strong></div><div><h3>${esc(a.title)}</h3><p>الوضح${a.camel ? ` · <span class="nw-camel-name">${esc(a.camel)}</span>` : ""}</p></div>${a.date ? `<time datetime="${esc(a.date)}" dir="ltr">${esc(a.date.split("-").reverse().join(" / "))}</time>` : ""}</article>`).join("")}</div></section>`;
+  }
+  async function loadNailatResults() {
+    const container = document.querySelector("#nailatResults");
+    if (!container) return;
+    try {
+      const { seasons } = await api("heritage-results");
+      if (!container.isConnected) return;
+      nailatAwards = seasons;
+      nailatEdition = seasons.some(s => s.edition === nailatEdition) ? nailatEdition : seasons[0]?.edition || "";
+      container.innerHTML = seasons.length ? `<div class="nw-year-tabs" role="tablist" aria-label="مواسم النائلات">${seasons.map(y => `<button id="nailat-tab-${esc(y.edition)}" role="tab" aria-controls="nailat-season-${esc(y.edition)}" aria-selected="${y.edition === nailatEdition}" tabindex="${y.edition === nailatEdition ? 0 : -1}" data-nailat-edition="${esc(y.edition)}"><strong dir="ltr">${esc(y.season)}</strong><small>النسخة ${esc(y.edition)}</small></button>`).join("")}</div>${seasons.map(nailatSeasonPanel).join("")}` : '<p>لا توجد نتائج مواسم متاحة حاليًا.</p>';
+    } catch (error) {
+      if (container.isConnected) container.innerHTML = `<p role="alert">${esc(error.message)}</p><button class="button button-ghost" data-action="heritage-public-reload">إعادة المحاولة</button>`;
+    } finally {
+      if (container.isConnected) container.setAttribute("aria-busy", "false");
+    }
   }
   function chooseNailatEdition(edition) {
     if (!nailatAwards.some((y) => y.edition === edition)) return;
@@ -1590,6 +1540,7 @@
     tabs[next].focus();
   });
   function heritagePage() {
+    queueMicrotask(() => loadNailatResults());
     return `<div class="heritage-home nailat-world">
       <section class="nailat-hero">
         <img class="nw-landscape" src="/brand/caravan-photo.png" width="1078" height="719" fetchpriority="high" alt="منقية النائلات في الصياهد">
@@ -1601,16 +1552,7 @@
       <section class="nw-story" id="nailat-story"><div class="reveal"><span class="nw-section-label">إرث نعتز به</span><h2>في الوضح أصالة.<em>وللنائلات مكانة.</em></h2></div><div class="nw-story-copy reveal"><p>يجمعنا الشغف بالإبل، والاعتزاز بموروثٍ نحمله إلى الأجيال. وفي ميادين مهرجان الملك عبدالعزيز للإبل، تتجدد مسيرة النائلات؛ بعنايةٍ بالمنقية، وعزيمةٍ على المنافسة، وفرحةٍ بكل إنجاز.</p><img src="/brand/signature.png" width="617" height="165" alt="منقية النائلات الوضح" loading="lazy"></div></section>
       <section class="nw-honor" id="nailat-honor"><div class="nw-honor-copy reveal"><img class="nw-watermark" src="/brand/isotype.png" alt="" loading="lazy"><span class="nw-section-label">لحظة التكريم</span><h2>تشريفٌ نعتزّ به.<br><em>وفخرٌ نحمله.</em></h2><p>سمو ولي العهد الأمير محمد بن سلمان يكرّم الشيخ عبدالله بن عامر النهدي، في ختام النسخة 9 من مهرجان الملك عبدالعزيز للإبل.</p><div class="nw-honor-caption">فرحة الإنجاز تكتمل بهذا التشريف.<br><span>قصر اليمامة · الرياض · <bdi>2025</bdi></span></div></div><figure class="nw-honor-photo"><img src="/brand/honoring.jpg" width="1280" height="1127" alt="سمو ولي العهد الأمير محمد بن سلمان يسلم راية التكريم للشيخ عبدالله بن عامر النهدي" loading="lazy"></figure></section>
       <section class="nw-archive" id="nailat-achievements"><div class="nw-archive-head reveal"><div><span class="nw-section-label">محطات الحضور</span><h2>بيارقٌ ترتفع.<br><em>ومسيرةٌ تُروى.</em></h2></div><p>تصفّح المواسم، واكتشف نتائج النائلات في أشواط الجمل والفرديات.</p></div>
-        <div class="nw-year-tabs" role="tablist" aria-label="مواسم النائلات">${[
-          ...nailatAwards,
-        ]
-          .reverse()
-          .map(
-            (y) =>
-              `<button id="nailat-tab-${y.edition}" role="tab" aria-controls="nailat-season-${y.edition}" aria-selected="${y.edition === nailatEdition}" tabindex="${y.edition === nailatEdition ? 0 : -1}" data-nailat-edition="${y.edition}"><strong dir="ltr">${y.season}</strong><small>النسخة ${y.edition}</small></button>`,
-          )
-          .join("")}</div>
-        ${[...nailatAwards].reverse().map(nailatSeasonPanel).join("")}
+        <div id="nailatResults" aria-busy="true"><p role="status">جارٍ تحميل نتائج المواسم…</p></div>
         <div class="nw-archive-note"><span>مهرجان الملك عبدالعزيز للإبل</span><span>منقية النائلات · لون الوضح</span></div>
       </section>
       <section class="nw-photo-essay nw-field-presence nw-panorama"><figure><img src="/brand/white-camel-closeup.png" width="1375" height="778" alt="لقطة قريبة للوضح بخلفية صافية، من الهوية البصرية للنائلات" loading="lazy"></figure><div class="nw-panorama-caption"><span>شغفٌ يُورث. وعنايةٌ تُثمر.</span><h2>قريبون من إرثنا.<br>ماضون بعزيمتنا.</h2></div></section>
@@ -1787,6 +1729,7 @@
       },
     );
   }
+  const heritageAdminContext = () => ({ api, esc, btn, heading, field, input, actions, modal, toast });
   function render(animate = true) {
     if (!S) return;
     document.body.classList.toggle("landing-mode", page === "heritage");
@@ -1814,6 +1757,7 @@
       users: membersPage,
       join_requests: joinRequestsPage,
       join_policy: joinPolicyPage,
+      heritage_results: () => DiwanHeritageAdmin.page(heritageAdminContext()),
       audit: auditPage,
       heritage: heritagePage,
       settings: settingsPage,
@@ -5096,6 +5040,19 @@
     )
       $("#assistant").close();
     switch (a) {
+      case "heritage-public-reload":
+        await loadNailatResults();
+        break;
+      case "heritage-results-reload":
+        await DiwanHeritageAdmin.load(heritageAdminContext());
+        break;
+      case "heritage-season-new":
+      case "heritage-season-edit":
+        await DiwanHeritageAdmin.form(heritageAdminContext(), id || "");
+        break;
+      case "heritage-season-delete":
+        await DiwanHeritageAdmin.remove(heritageAdminContext(), id);
+        break;
       case "join-requests-reload":
         await loadJoinRequests();
         break;

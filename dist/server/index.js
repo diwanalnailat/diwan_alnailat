@@ -11,6 +11,7 @@ import {
 } from "./lib/join-requests.js";
 import { ASSET_CATEGORIES, ASSET_BATCH_LIMIT } from "./lib/assets.js";
 import { jsonBody, formBody, httpsOrigin } from "./lib/security.js";
+import { heritageResults, saveHeritageResults } from "./lib/heritage-results.js";
 import {
   mediaForReader,
   canReadEngagement,
@@ -666,6 +667,7 @@ async function state(db, c, filter = "", env = {}) {
   return {
     user: normalize({ ...c.u, email: c.u.email }),
     join_requests_access: joinAccess(c),
+    heritage_results_access: c.can("settings", "manage"),
     modules,
     effective_grants: effectiveGrants(c.u, c.bundles),
     projects,
@@ -863,6 +865,8 @@ async function handle(req, env) {
     return json({ status: "ok" });
   }
   if (!db) fail("تعذر الاتصال بالتخزين. حاول مرة أخرى.", 503);
+  if (p === "/api/heritage-results" && req.method === "GET")
+    return json({ seasons: (await heritageResults(db)).seasons });
   if (p === "/api/webhooks/whatsapp") return webhook(req, env);
   if (req.method !== "GET" && req.headers.get("origin") !== url.origin)
     fail("طلب غير موثوق", 403);
@@ -902,6 +906,11 @@ async function handle(req, env) {
   if (p === "/api/registration/request")
     fail("ابدأ بتوثيق الجوال عبر واتساب لإرسال طلب الانضمام", 400);
   const c = await context(req, env);
+  if (p === "/api/heritage-results/manage" && req.method === "GET") {
+    c.need("settings", "manage");
+    return json(await heritageResults(db));
+  }
+
   if (p === "/api/join-requests" && req.method === "GET")
     return json(await joinDashboard(db, c));
   if (p === "/api/join-policy" && req.method === "GET")
@@ -1269,6 +1278,8 @@ async function handle(req, env) {
     return json(await reviewJoin(db, c, b, "decide"));
   if (p === "/api/join-policy/save")
     return json(await saveJoinPolicy(db, c, b));
+  if (p === "/api/heritage-results/save")
+    return json(await saveHeritageResults(db, c, b));
   if (p === "/api/legacy/import") {
     c.need("settings", "manage");
     c.need("projects", "create");

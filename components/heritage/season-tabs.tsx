@@ -6,6 +6,9 @@ import type { HeritageSeason } from "../../lib/heritage/types";
 export function SeasonTabs({ seasons }: { seasons: HeritageSeason[] }) {
   const [selected, setSelected] = useState(seasons[0]?.edition);
   const tabs = useRef<(HTMLButtonElement | null)[]>([]);
+  const active = seasons.some((s) => s.edition === selected)
+    ? selected
+    : seasons[0]?.edition;
 
   function handleKey(event: KeyboardEvent<HTMLButtonElement>, index: number) {
     if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
@@ -36,8 +39,8 @@ export function SeasonTabs({ seasons }: { seasons: HeritageSeason[] }) {
             type="button"
             role="tab"
             aria-controls={`nailat-season-${season.edition}`}
-            aria-selected={selected === season.edition}
-            tabIndex={selected === season.edition ? 0 : -1}
+            aria-selected={active === season.edition}
+            tabIndex={active === season.edition ? 0 : -1}
             onClick={() => setSelected(season.edition)}
             onKeyDown={(event) => handleKey(event, index)}
           >
@@ -54,7 +57,7 @@ export function SeasonTabs({ seasons }: { seasons: HeritageSeason[] }) {
           role="tabpanel"
           aria-labelledby={`nailat-tab-${season.edition}`}
           tabIndex={0}
-          hidden={selected !== season.edition}
+          hidden={active !== season.edition}
         >
           <div className="nw-season-note">
             <span>مهرجان الملك عبدالعزيز للإبل</span>
@@ -72,11 +75,12 @@ export function SeasonTabs({ seasons }: { seasons: HeritageSeason[] }) {
             </p>
           </div>
           <div className="nw-result-list">
-            {season.awards.map((award) => (
+            {!season.awards.length && <p>لم تُنشر نتائج هذا الموسم بعد.</p>}
+            {season.awards.map((award, index) => (
               <article
                 className="nw-result"
                 data-rank={award.rank}
-                key={`${award.title}-${award.rank}`}
+                key={`${award.title}-${award.rank}-${index}`}
               >
                 <div className="nw-place" aria-label={`المركز ${award.rank}`}>
                   <small>المركز</small>

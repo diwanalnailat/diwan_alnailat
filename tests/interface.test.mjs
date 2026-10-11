@@ -60,6 +60,7 @@ test("actual interface and server: heritage entry, connected membership, task st
     "typography",
     "workspace",
     "workspace-views",
+    "heritage-admin",
     "motion",
     "app",
   ])
@@ -101,6 +102,7 @@ test("actual interface and server: heritage entry, connected membership, task st
   };
   try {
     await wait(() => d.querySelector(".nailat-hero"));
+    await wait(() => d.querySelectorAll(".nw-season").length === 5);
     assert.ok(d.body.classList.contains("landing-mode"));
     assert.ok(
       d
@@ -142,6 +144,52 @@ test("actual interface and server: heritage entry, connected membership, task st
     click(".heritage-nav [data-page=overview]");
     await wait(() => !d.body.classList.contains("landing-mode"));
     assert.ok(d.querySelector(".command-hero"));
+    await click('[data-page="heritage_results"]');
+    await wait(() => d.querySelectorAll(".heritage-season-card").length === 5);
+    await click('[data-action="heritage-season-new"]');
+    await wait(() => d.querySelector("#modal").open);
+    val("season", "2027–2028");
+    val("edition", "12");
+    val("title", '<img src=x onerror="throw 1">');
+    await click("[data-award-add]");
+    val("award_title", "نتيجة اختبار");
+    val("award_rank", "2");
+    val("award_date", "2028-01-02");
+    val("award_camel", "مطية اختبار");
+    await click("[data-award-add]");
+    d.querySelectorAll('[name="award_title"]')[1].value = "نتيجة ثانية";
+    await click('.heritage-award-editor:nth-child(2) [data-award-move="-1"]');
+    assert.equal(d.querySelector('[name="award_title"]').value, "نتيجة ثانية");
+    await click(".heritage-award-editor [data-award-remove]");
+    await submit();
+    await wait(() => d.querySelectorAll(".heritage-season-card").length === 6);
+    assert.equal(d.querySelector("#heritageResultsPanel img"), null);
+    const published = (await a.req("heritage-results", undefined, null)).data.seasons;
+    assert.equal(published[0].edition, "12");
+    assert.equal(published[0].awards.length, 1);
+    assert.equal(published[0].awards[0].camel, "مطية اختبار");
+    await click('[data-action="heritage-season-edit"][data-id="12"]');
+    await wait(() => d.querySelector("#modal").open);
+    val("title", "عنوان معدل");
+    // Another admin saved while this dialog was open: stale edits must remain visible.
+    const concurrent = await a.req("heritage-results/manage");
+    await a.req("heritage-results/save", { ...concurrent.data });
+    d.querySelector("#modalBody form").dispatchEvent(new w.SubmitEvent("submit", { bubbles: true, cancelable: true, submitter: d.querySelector('#modalBody [type="submit"]') }));
+    await wait(() => !d.querySelector("#modalBody .form-error").hidden);
+    assert.equal(d.querySelector("#modal").open, true);
+    assert.equal(d.querySelector('#modalBody [name="title"]').value, "عنوان معدل");
+    await click('[data-action="close-modal"]');
+    await click('[data-action="heritage-season-edit"][data-id="12"]');
+    await wait(() => d.querySelector("#modal").open);
+    val("title", "عنوان معدل");
+    await submit();
+    await wait(() => d.querySelector("#heritageResultsPanel").textContent.includes("عنوان معدل"));
+    await click('[data-action="heritage-season-delete"][data-id="12"]');
+    await wait(() => d.querySelector("#modal").open);
+    await submit();
+    await wait(() => d.querySelectorAll(".heritage-season-card").length === 5);
+    await click('[data-page="overview"]');
+    await wait(() => d.querySelector(".command-hero"));
     w.innerWidth = 390;
     w.dispatchEvent(new w.Event("resize"));
     assert.equal(d.querySelector("#sidebar").inert, true);

@@ -4,6 +4,55 @@
   font-display: swap;
   font-weight: 100 900;
 }
+.heritage-season-card {
+  margin-bottom: 20px;
+}
+.heritage-season-card .section-heading {
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.heritage-award-preview {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.heritage-award-preview li {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.heritage-award-preview time {
+  margin-inline-start: auto;
+  color: var(--muted);
+}
+.heritage-award-editor {
+  min-width: 0;
+  margin: 16px 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.heritage-award-editor legend {
+  padding: 0 8px;
+  font-weight: 700;
+}
+.heritage-award-editor .page-actions {
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+.heritage-season-form .button,
+.heritage-season-card .button {
+  min-height: 44px;
+}
+.heritage-season-card h2,
+.heritage-season-card p {
+  overflow-wrap: anywhere;
+}
 * {
   box-sizing: border-box;
 }

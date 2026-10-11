@@ -161,6 +161,7 @@
     archive: ["04", "المعرفة وإدارة الديوان"],
   };
   function visible(S, page) {
+    if (page === "heritage_results") return !!S.heritage_results_access;
     if (page === "join_requests") return !!S.join_requests_access;
     if (page === "join_policy") return S.user.status === "active";
     const resources = { media: "suppliers", field: "assets" };
