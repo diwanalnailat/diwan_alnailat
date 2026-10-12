@@ -9,6 +9,7 @@ const digits = (s: string) =>
     .replace(/[۰-۹]/g, (n) => String(n.charCodeAt(0) - 1776));
 export default function LoginForm() {
   const [phone, setPhone] = useState("");
+  const [invitation, setInvitation] = useState(false);
   const [consent, setConsent] = useState(false);
   const [challenge, setChallenge] = useState("");
   const [code, setCode] = useState("");
@@ -25,7 +26,7 @@ export default function LoginForm() {
   useEffect(() => {
     if (challenge) codeRef.current?.focus();
   }, [challenge]);
-  async function send(action: "request" | "verify") {
+  async function send(action: "request" | "verify" | "invitation") {
     if (busy) return;
     setBusy(true);
     setError("");
@@ -37,13 +38,15 @@ export default function LoginForm() {
         body: JSON.stringify(
           action === "request"
             ? { phone: "+966" + saudiLocalPhone(phone), consent }
-            : { challenge_id: challenge, code: digits(code) },
+            : action === "invitation"
+              ? { phone: "+966" + saudiLocalPhone(phone), code }
+              : { challenge_id: challenge, code: digits(code) },
         ),
       });
       const data = await response.json();
       if (!response.ok)
         throw new Error(data.error || "تعذر إكمال الطلب. حاول لاحقًا.");
-      if (action === "verify") {
+      if (action !== "request") {
         // The workspace serves a standalone Worker document, so it needs a full navigation.
         // eslint-disable-next-line @next/next/no-location-assign-relative-destination
         window.location.assign("/workspace#overview");
@@ -68,7 +71,7 @@ export default function LoginForm() {
       className="login-form"
       onSubmit={(e) => {
         e.preventDefault();
-        void send(challenge ? "verify" : "request");
+        void send(invitation ? "invitation" : challenge ? "verify" : "request");
       }}
       aria-busy={busy}
     >
@@ -85,16 +88,39 @@ export default function LoginForm() {
           <small id="phone-hint">
             أدخل رقم جوالك بدءًا من 5؛ رمز الدولة ثابت.
           </small>
-          <label className="login-consent">
-            <input
-              type="checkbox"
-              checked={consent}
-              onChange={(e) => setConsent(e.target.checked)}
-              required
-              disabled={busy}
-            />
-            <span>أوافق على استلام رمز الدخول عبر واتساب.</span>
-          </label>
+          {invitation ? (
+            <>
+              <label htmlFor="temporary-password">كلمة المرور المؤقتة</label>
+              <input
+                id="temporary-password"
+                name="temporary-password"
+                type="password"
+                dir="ltr"
+                autoComplete="one-time-code"
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                required
+                maxLength={12}
+                disabled={busy}
+                aria-describedby="temporary-hint"
+              />
+              <small id="temporary-hint">
+                أدخل كلمة المرور التي وصلتك مع دعوة اللجنة. صالحة لاستخدام واحد
+                خلال 24 ساعة.
+              </small>
+            </>
+          ) : (
+            <label className="login-consent">
+              <input
+                type="checkbox"
+                checked={consent}
+                onChange={(e) => setConsent(e.target.checked)}
+                required
+                disabled={busy}
+              />
+              <span>أوافق على استلام رمز الدخول عبر واتساب.</span>
+            </label>
+          )}
         </>
       ) : (
         <>
@@ -137,10 +163,27 @@ export default function LoginForm() {
       <button className="login-submit" type="submit" disabled={busy}>
         {busy
           ? "جارٍ المتابعة…"
-          : challenge
+          : challenge || invitation
             ? "دخول الديوان"
             : "إرسال الرمز عبر واتساب"}
       </button>
+      {!challenge && (
+        <button
+          type="button"
+          className="login-join"
+          disabled={busy}
+          onClick={() => {
+            setInvitation(!invitation);
+            setCode("");
+            setError("");
+            setNotice("");
+          }}
+        >
+          {invitation
+            ? "الدخول برمز واتساب بدلًا من كلمة المرور"
+            : "لدي كلمة مرور مؤقتة"}
+        </button>
+      )}
       {challenge && (
         <div className="login-actions">
           <button

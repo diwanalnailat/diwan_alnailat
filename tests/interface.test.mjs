@@ -180,7 +180,8 @@ test("actual interface and server: heritage entry, connected membership, task st
     await submit();
     await wait(() => d.querySelectorAll(".heritage-season-card").length === 6);
     assert.equal(d.querySelector("#heritageResultsPanel img"), null);
-    const published = (await a.req("heritage-results", undefined, null)).data.seasons;
+    const published = (await a.req("heritage-results", undefined, null)).data
+      .seasons;
     assert.equal(published[0].edition, "12");
     assert.equal(published[0].awards.length, 1);
     assert.equal(published[0].awards[0].camel, "مطية اختبار");
@@ -190,16 +191,29 @@ test("actual interface and server: heritage entry, connected membership, task st
     // Another admin saved while this dialog was open: stale edits must remain visible.
     const concurrent = await a.req("heritage-results/manage");
     await a.req("heritage-results/save", { ...concurrent.data });
-    d.querySelector("#modalBody form").dispatchEvent(new w.SubmitEvent("submit", { bubbles: true, cancelable: true, submitter: d.querySelector('#modalBody [type="submit"]') }));
+    d.querySelector("#modalBody form").dispatchEvent(
+      new w.SubmitEvent("submit", {
+        bubbles: true,
+        cancelable: true,
+        submitter: d.querySelector('#modalBody [type="submit"]'),
+      }),
+    );
     await wait(() => !d.querySelector("#modalBody .form-error").hidden);
     assert.equal(d.querySelector("#modal").open, true);
-    assert.equal(d.querySelector('#modalBody [name="title"]').value, "عنوان معدل");
+    assert.equal(
+      d.querySelector('#modalBody [name="title"]').value,
+      "عنوان معدل",
+    );
     await click('[data-action="close-modal"]');
     await click('[data-action="heritage-season-edit"][data-id="12"]');
     await wait(() => d.querySelector("#modal").open);
     val("title", "عنوان معدل");
     await submit();
-    await wait(() => d.querySelector("#heritageResultsPanel").textContent.includes("عنوان معدل"));
+    await wait(() =>
+      d
+        .querySelector("#heritageResultsPanel")
+        .textContent.includes("عنوان معدل"),
+    );
     await click('[data-action="heritage-season-delete"][data-id="12"]');
     await wait(() => d.querySelector("#modal").open);
     await submit();
@@ -488,58 +502,139 @@ test("actual interface and server: heritage entry, connected membership, task st
     await wait(() => projectLink.getAttribute("aria-invalid") === "true");
     assert.equal(projectLink.validity.valid, false);
     const projectForm = d.querySelector("#modalBody form");
-    projectForm.dispatchEvent(new w.SubmitEvent("submit", {
-      bubbles: true, cancelable: true,
-      submitter: projectForm.querySelector("[type=submit]"),
-    }));
+    projectForm.dispatchEvent(
+      new w.SubmitEvent("submit", {
+        bubbles: true,
+        cancelable: true,
+        submitter: projectForm.querySelector("[type=submit]"),
+      }),
+    );
     await wait(() => !projectForm.querySelector(".form-error").hidden);
-    assert.equal(d.querySelector("#modal").open, true, "invalid links cannot silently save old coordinates");
+    assert.equal(
+      d.querySelector("#modal").open,
+      true,
+      "invalid links cannot silently save old coordinates",
+    );
     await click("[data-geo-clear]");
     assert.equal(projectLink.value, "");
     assert.equal(projectLink.validity.valid, true);
     assert.equal(d.querySelector("[name=geo_lat]").value, "");
     let releaseLocation;
-    locationDelay = new Promise((resolve) => { releaseLocation = resolve; });
+    locationDelay = new Promise((resolve) => {
+      releaseLocation = resolve;
+    });
     pasteLink("https://maps.google.com/?q=26,48");
     await wait(() => pendingRequests > 0);
     d.querySelector("[data-geo-clear]").click();
     releaseLocation();
     locationDelay = null;
     await wait(() => pendingRequests === 0);
-    assert.equal(d.querySelector("[name=geo_lat]").value, "", "clearing ignores an older in-flight result");
+    assert.equal(
+      d.querySelector("[name=geo_lat]").value,
+      "",
+      "clearing ignores an older in-flight result",
+    );
     pasteLink("https://www.google.com/maps/search/24.7136,+46.6753?entry=tts");
     await submit(); // Save immediately, before debounce: resolution must finish first.
-    const mappedProject = (await state(a)).projects.find((p) => p.title === "مشروع اختبار رابط الموقع");
+    const mappedProject = (await state(a)).projects.find(
+      (p) => p.title === "مشروع اختبار رابط الموقع",
+    );
     assert.equal(mappedProject.meta.site_location.lat, 24.7136);
     assert.equal(mappedProject.meta.site_location.lng, 46.6753);
     assert.equal(mappedProject.meta.site_location.map_url, projectLink.value);
     await click(`[data-action=project-edit][data-id="${mappedProject.id}"]`);
-    assert.equal(d.querySelector("#project-google-url").value, mappedProject.meta.site_location.map_url);
+    assert.equal(
+      d.querySelector("#project-google-url").value,
+      mappedProject.meta.site_location.map_url,
+    );
     await click("[data-geo-map]");
     await wait(() => d.querySelector(".map-picker"));
     chosen({ latlng: { lat: 24.8, lng: 46.9 } });
     await click("[data-map-save]");
-    assert.match(d.querySelector("#project-google-url").value, /24.800000,46.900000/);
+    assert.match(
+      d.querySelector("#project-google-url").value,
+      /24.800000,46.900000/,
+    );
     await submit();
-    assert.equal((await state(a)).projects.find((p) => p.id === mappedProject.id).meta.site_location.lat, 24.8);
+    assert.equal(
+      (await state(a)).projects.find((p) => p.id === mappedProject.id).meta
+        .site_location.lat,
+      24.8,
+    );
     await click("[data-page=committees]");
     const sharedModal = d.querySelector("#modal");
     sharedModal.scrollTop = 640;
     d.querySelector("#modalBody").scrollTop = 320;
     await click("[data-action=committee-new]");
-    assert.equal(sharedModal.scrollTop, 0, "first committee opens at the top after another form");
+    assert.equal(
+      sharedModal.scrollTop,
+      0,
+      "first committee opens at the top after another form",
+    );
     assert.equal(d.querySelector("#modalBody").scrollTop, 0);
     assert.equal(d.activeElement, d.querySelector("#modalTitle"));
     assert.equal(sharedModal.getAttribute("aria-labelledby"), "modalTitle");
     val("name", "مسودة لجنة");
     sharedModal.scrollTop = 480;
     d.querySelector("[name=name]").focus();
-    assert.equal(sharedModal.scrollTop, 480, "editing does not reset the user's scroll");
+    assert.equal(
+      sharedModal.scrollTop,
+      480,
+      "editing does not reset the user's scroll",
+    );
     await click("[data-action=close-modal]");
     await click("[data-action=committee-new]");
-    assert.equal(sharedModal.scrollTop, 0, "reopening also resets the retained scroll");
+    assert.equal(
+      sharedModal.scrollTop,
+      0,
+      "reopening also resets the retained scroll",
+    );
     assert.equal(d.activeElement, d.querySelector("#modalTitle"));
-    await click("[data-action=close-modal]");
+    assert.equal(d.querySelector("#newManagerFields").hidden, true);
+    val("name", "لجنة المدير الجديد");
+    await click("#newManagerToggle");
+    assert.equal(d.querySelector("[name=manager_id]").disabled, true);
+    assert.equal(d.querySelector("[name=manager_name]").required, true);
+    assert.equal(d.querySelector("[name=manager_email]").required, false);
+    val("manager_name", "مدير اختبار الواجهة");
+    val("manager_phone", "0500000031");
+    await click("#newManagerToggle");
+    assert.equal(d.querySelector("[name=manager_id]").disabled, false);
+    assert.equal(d.querySelector("[name=manager_name]").disabled, true);
+    await click("#newManagerToggle");
+    assert.equal(
+      d.querySelector("[name=manager_name]").value,
+      "مدير اختبار الواجهة",
+    );
+    let managerMessage = "";
+    Object.assign(a.env, {
+      DIWAN_AUTH_ENABLED: "true",
+      WHATSAPP_ENABLED: "true",
+      WHATSAPP_PROVIDER: "green_api",
+      APP_BASE_URL: "https://diwan.test",
+      OTP_SECRET: "a".repeat(48),
+      GREEN_API_URL: "https://7107.api.greenapi.com",
+      GREEN_API_INSTANCE: "1234567890",
+      GREEN_API_TOKEN: "test-token-not-a-real-credential",
+      PROVIDER_FETCH: async (_, opts) => {
+        managerMessage = JSON.parse(opts.body).message;
+        return Response.json({ idMessage: "ui-test-message" });
+      },
+    });
+    await submit();
+    assert.match(managerMessage, /لجنة المدير الجديد/);
+    const newCommittee = (await state(a)).committees.find(
+      (c) => c.name === "لجنة المدير الجديد",
+    );
+    assert.ok(newCommittee.manager_id);
+    const newManager = await a.DB.prepare(
+      "SELECT name,email,phone FROM nl_members WHERE id=?",
+    )
+      .bind(newCommittee.manager_id)
+      .first();
+    assert.equal(newManager.email, null);
+    assert.equal(newManager.phone, "+966500000031");
+    assert.equal(newManager.name, "مدير اختبار الواجهة");
     await click("[data-action=assistant]");
     await wait(() => d.querySelector("#assistant").dataset.loading === "false");
     assert.ok(d.querySelector("#assistantBody").textContent.includes("سَنَد"));

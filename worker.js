@@ -1,4 +1,9 @@
 import { resolveGoogleMaps } from "./lib/google-maps.js";
+import {
+  managerInvitation,
+  invitationPassword,
+  normalizeMemberPhone,
+} from "./lib/committee-invitations.js";
 import { validateLocation } from "./lib/location.js";
 import {
   joinAccess,
@@ -12,7 +17,10 @@ import {
 } from "./lib/join-requests.js";
 import { ASSET_CATEGORIES, ASSET_BATCH_LIMIT } from "./lib/assets.js";
 import { jsonBody, formBody, httpsOrigin } from "./lib/security.js";
-import { heritageResults, saveHeritageResults } from "./lib/heritage-results.js";
+import {
+  heritageResults,
+  saveHeritageResults,
+} from "./lib/heritage-results.js";
 import {
   mediaForReader,
   canReadEngagement,
@@ -1317,24 +1325,80 @@ async function handle(req, env) {
     );
     const id = old?.id || uid();
     const members =
-      b.members === undefined ? parse(old?.members, []) : b.members;
+      b.members === undefined
+        ? parse(old?.members, [])
+        : structuredClone(b.members);
     if (
       !Array.isArray(members) ||
       members.length > 200 ||
       new Set(members.map((m) => m.id)).size !== members.length
     )
       fail("راجع قائمة أعضاء اللجنة");
-    const manager =
+    let manager =
       b.manager_id === undefined
         ? old?.manager_id || null
         : b.manager_id || null;
+    let newManager = null,
+      invitation = null;
+    if (b.manager_new) {
+      c.need("users", "manage");
+      const name = string(b.manager_new.name, 120);
+      const phone = normalizeMemberPhone(b.manager_new.phone);
+      const email =
+        string(b.manager_new.email, 180, true).trim().toLowerCase() || null;
+      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+        fail("راجع البريد الإلكتروني");
+      const existing = await one(
+        db,
+        "SELECT * FROM nl_members WHERE phone=?",
+        phone,
+      );
+      if (existing && existing.status !== "active")
+        fail(
+          "رقم الجوال مرتبط بحساب غير مفعّل؛ راجع العضو من إدارة المستخدمين",
+        );
+      if (
+        !existing &&
+        email &&
+        (await one(db, "SELECT id FROM nl_members WHERE lower(email)=?", email))
+      )
+        fail("البريد الإلكتروني مرتبط بحساب آخر");
+      const person = existing || { id: uid(), name, phone, email };
+      newManager = existing ? null : person;
+      manager = person.id;
+      const pref = await one(
+        db,
+        "SELECT whatsapp FROM nl_contact_preferences WHERE member_id=?",
+        manager,
+      );
+      if (pref && !pref.whatsapp)
+        fail(
+          "هذا العضو أوقف إشعارات واتساب؛ اختره من قائمة المديرين دون إرسال دعوة",
+        );
+      const membership = members.find((m) => m.id === manager);
+      if (membership) membership.role = "manager";
+      else
+        members.push({
+          id: manager,
+          role: "manager",
+          grants: MEMBER_PRESETS.manager,
+        });
+      if (members.length > 200) fail("راجع قائمة أعضاء اللجنة");
+      await limit(db, "manager-invite:" + c.u.id, 20, 3600);
+      invitation = await managerInvitation(
+        env,
+        person,
+        { id, name: string(b.name, 120) },
+        project,
+      );
+    }
     if (
       JSON.stringify(members) !== JSON.stringify(parse(old?.members, [])) ||
       manager !== (old?.manager_id || null)
     ) {
       c.need("users", "manage");
       for (const m of members) {
-        await record(db, "users", m.id);
+        if (m.id !== newManager?.id) await record(db, "users", m.id);
         string(m.role, 80);
         validateGrants(m.grants);
         for (const g of m.grants) {
@@ -1362,7 +1426,7 @@ async function handle(req, env) {
             projectId: project.id,
           });
     }
-    if (manager) await activeMember(db, manager);
+    if (manager && !newManager) await activeMember(db, manager);
     const statuses = TASK_FLOW;
     const cfg = b.config || committeeConfig(old);
     if (JSON.stringify(cfg) !== JSON.stringify(committeeConfig(old))) {
@@ -1455,13 +1519,35 @@ async function handle(req, env) {
             "INSERT INTO nl_committees(id,project_id,name,description,manager_id,members,statuses,created_by,created) VALUES(?,?,?,?,?,?,?,?,?)",
           )
           .bind(id, project.id, ...vals, c.u.id, now());
-    return commit(
+    const saved = await commit(
       db,
       c,
       req,
       b,
       [
+        ...(newManager
+          ? [
+              db
+                .prepare(
+                  "INSERT INTO nl_members(id,name,email,phone,status,grants,bundles,created) VALUES(?,?,?,?,'active','[]','[]',?)",
+                )
+                .bind(
+                  newManager.id,
+                  newManager.name,
+                  newManager.email,
+                  newManager.phone,
+                  now(),
+                ),
+            ]
+          : []),
         stmt,
+        ...(old
+          ? [
+              db
+                .prepare("INSERT INTO nl_guards VALUES(?,changes())")
+                .bind(uid()),
+            ]
+          : []),
         db
           .prepare("UPDATE nl_committees SET config=? WHERE id=?")
           .bind(JSON.stringify(cfg), id),
@@ -1473,10 +1559,26 @@ async function handle(req, env) {
           id,
           project.id,
         ),
+        ...(invitation?.statements || []),
       ],
-      { id },
-      !!old,
+      { id, ...(invitation ? { manager_invitation: "queued" } : {}) },
+      false,
     );
+    if (!invitation) return saved;
+    // Delivery happens only after the atomic save; a provider failure never
+    // turns a saved committee into a misleading save error or creates duplicates.
+    let delivery;
+    try {
+      await dispatchNotifications(env, invitation.id);
+      delivery = await one(
+        db,
+        "SELECT status FROM nl_delivery_jobs WHERE id=?",
+        invitation.id,
+      );
+    } catch {
+      /* Saved successfully; delivery remains unconfirmed. */
+    }
+    return json({ id, manager_invitation: delivery?.status || "queued" });
   }
   if (p === "/api/tasks/request") {
     const parent = await record(db, "tasks", b.parent_id);
@@ -3970,12 +4072,14 @@ async function handle(req, env) {
   }
   fail("المسار غير موجود", 404);
 }
-export async function dispatchNotifications(env) {
+export async function dispatchNotifications(env, onlyId = null) {
   if (!integrationStatus(env).whatsapp) return { accepted: 0, ready: false };
   const db = env.DB,
     list = await all(
       db,
-      `SELECT n.*,j.status AS delivery_status,j.attempts,j.next_at FROM nl_notifications n LEFT JOIN nl_delivery_jobs j ON j.id=n.id WHERE n.channel='whatsapp' AND ((j.id IS NULL AND n.created>?) OR (j.status='retry' AND j.next_at<? AND j.attempts<4)) ORDER BY n.created LIMIT 20`,
+      `SELECT n.*,j.status AS delivery_status,j.attempts,j.next_at FROM nl_notifications n LEFT JOIN nl_delivery_jobs j ON j.id=n.id WHERE n.channel='whatsapp' AND (?='' OR n.id=?) AND ((j.id IS NULL AND n.created>?) OR (j.status='retry' AND j.next_at<? AND j.attempts<4)) ORDER BY n.created LIMIT 20`,
+      onlyId || "",
+      onlyId || "",
       new Date(Date.now() - 86400000).toISOString(),
       Date.now(),
     );
@@ -3996,6 +4100,26 @@ export async function dispatchNotifications(env) {
       entity = null;
     }
     const recipient = m ? withCommittees(m, committees) : null;
+    const invite =
+      n.resource === "committees"
+        ? await one(
+            db,
+            "SELECT * FROM nl_otp WHERE id=? AND site_id LIKE 'manager:%'",
+            n.id,
+          )
+        : null;
+    const inviteProject = invite
+      ? await one(db, "SELECT status FROM nl_projects WHERE id=?", n.project_id)
+      : null;
+    const managerNotice =
+      invite &&
+      !invite.used &&
+      invite.expires > Date.now() &&
+      invite.phone === m?.phone &&
+      invite.site_id === `manager:${m?.id}:${entity?.id}` &&
+      entity?.manager_id === m?.id &&
+      inviteProject &&
+      inviteProject.status !== "closed";
     const joinNotification = n.resource === "join_requests";
     const recipientContext = {
       u: recipient,
@@ -4010,9 +4134,10 @@ export async function dispatchNotifications(env) {
     if (
       !m ||
       m.status !== "active" ||
-      (!m.verified && !configuredAdmin) ||
+      (invite && !managerNotice) ||
+      (!m.verified && !configuredAdmin && !managerNotice) ||
       !m.phone ||
-      (!pref?.whatsapp && !configuredAdmin) ||
+      (!pref?.whatsapp && !configuredAdmin && !(managerNotice && !pref)) ||
       !entity ||
       !(joinNotification
         ? mayReadJoin(recipientContext, entity)
@@ -4053,11 +4178,26 @@ export async function dispatchNotifications(env) {
         env,
         m.phone,
         env.WHATSAPP_NOTIFICATION_TEMPLATE,
-        joinNotification && env.WHATSAPP_PROVIDER === "green_api"
-          ? [n.title]
-          : [m.name, n.title, deep],
+        managerNotice
+          ? [
+              m.name,
+              `${n.title}. ${n.body} كلمة المرور المؤقتة: ${await invitationPassword(env, invite)} — صالحة لاستخدام واحد خلال 24 ساعة. اختر «لدي كلمة مرور مؤقتة» في صفحة الدخول. لا تشاركها مع أحد.`,
+              base + "/login",
+            ]
+          : joinNotification && env.WHATSAPP_PROVIDER === "green_api"
+            ? [n.title]
+            : [m.name, n.title, deep],
       );
       await db.batch([
+        ...(managerNotice
+          ? [
+              db
+                .prepare(
+                  "UPDATE nl_otp SET status='sent' WHERE id=? AND used=0",
+                )
+                .bind(invite.id),
+            ]
+          : []),
         db
           .prepare(
             "UPDATE nl_delivery_jobs SET status='accepted',provider_id=?,updated=? WHERE id=?",

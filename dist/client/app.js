@@ -323,7 +323,14 @@
         "documents",
         "reports",
       ],
-      ["join_requests", "users", "heritage_results", "join_policy", "settings", "audit"],
+      [
+        "join_requests",
+        "users",
+        "heritage_results",
+        "join_policy",
+        "settings",
+        "audit",
+      ],
       ["heritage"],
     ];
     $("#nav").innerHTML = groups
@@ -559,6 +566,16 @@
   ) {
     return `<div class="catalog-row" data-budget-line="${esc(l.id)}">${input("line_name", l.name, "text", 'required placeholder="اسم البند"')}${input("line_budget", (l.budget || 0) / 100, "number", 'min="0" step="0.01" placeholder="المخصص ر.س"')}<label><input type="checkbox" name="line_active" ${l.active ? "checked" : ""}> متاح للرفع</label></div>`;
   }
+  function managerFields(c, access) {
+    const existing = select(
+      "manager_id",
+      [["", "حدد مدير اللجنة"], ...S.people.map((p) => [p.id, p.name])],
+      c.manager_id || "",
+      access ? 'aria-label="مدير اللجنة"' : 'disabled aria-label="مدير اللجنة"',
+    );
+    if (!access) return existing;
+    return `${existing}<button type="button" class="button" id="newManagerToggle" aria-expanded="false" aria-controls="newManagerFields">+ إضافة مدير بالاسم والجوال</button>`;
+  }
   function committeeForm(id) {
     const c = S.committees.find((c) => c.id === id) || {
         project_id: project || S.projects[0]?.id,
@@ -589,7 +606,7 @@
             c.project_id,
             c.id ? "disabled" : "required",
           ),
-        )}${field("مدير اللجنة", select("manager_id", [["", "حدد مدير اللجنة"], ...S.people.map((p) => [p.id, p.name])], c.manager_id || "", access ? "" : "disabled"))}${field("المعتمد الثاني للمصاريف", select("second_approver_id", [["", "اختر صاحب صلاحية الاعتماد"], ...candidates.map((u) => [u.id, u.name])], c.config?.second_approver_id || "", access ? "" : "disabled"))}${field("بديل الاعتماد عند تعارض المصالح", select("review_delegate_id", [["", "اختر بديلًا عند الحاجة"], ...candidates.filter((u) => u.id !== c.config?.second_approver_id).map((u) => [u.id, u.name])], c.config?.review_delegate_id || "", access ? "" : "disabled"))}<p class="form-note full">البديل يراجع مصروف أحد المعتمدين، ولا يستطيع صاحب المصروف اعتماد طلبه. الأول مدير اللجنة. الثاني تختاره هنا من أصحاب صلاحية الاعتماد؛ ويمكن اختيار الشخص نفسه لعدة لجان. ظهور الاسم لا يمنح صلاحية جديدة.</p>${field("اختصاص اللجنة", textarea("description", c.description || "", 3), true)}`,
+        )}${field("مدير اللجنة", managerFields(c, access))}${field("المعتمد الثاني للمصاريف", select("second_approver_id", [["", "اختر صاحب صلاحية الاعتماد"], ...candidates.map((u) => [u.id, u.name])], c.config?.second_approver_id || "", access ? "" : "disabled"))}${field("بديل الاعتماد عند تعارض المصالح", select("review_delegate_id", [["", "اختر بديلًا عند الحاجة"], ...candidates.filter((u) => u.id !== c.config?.second_approver_id).map((u) => [u.id, u.name])], c.config?.review_delegate_id || "", access ? "" : "disabled"))}<p class="form-note full">البديل يراجع مصروف أحد المعتمدين، ولا يستطيع صاحب المصروف اعتماد طلبه. الأول مدير اللجنة. الثاني تختاره هنا من أصحاب صلاحية الاعتماد؛ ويمكن اختيار الشخص نفسه لعدة لجان. ظهور الاسم لا يمنح صلاحية جديدة.</p>${field("اختصاص اللجنة", textarea("description", c.description || "", 3), true)}`,
       )}${part("2", "الأعضاء ومشرفو اللجنة", "يمكن تعيين أكثر من مشرف باختيار صفة مشرف اللجنة. لا تظهر لهم طلبات الانضمام إلا بعد إحالة الإدارة إلى المشرف المحدد. صلاحيات اعتماد المهام والمصاريف تبقى حسب الدور والمنح.", `<div class="full" id="committeeMembers">${c.members.map(committeeMemberRow).join("")}</div>${access ? '<button type="button" class="button full" data-action="membership-add">+ إضافة عضو أو مشرف من الديوان</button>' : ""}`)}${part("3", "بنود الصرف المعتمدة", "لا يكتب العضو تصنيفًا حرًا. يختار بندًا من هذه القائمة عند رفع المصروف.", `<div class="catalog-head"><span>اسم البند</span><span>المخصص — ر.س</span><span>التفعيل</span></div><div class="full" id="budgetCatalog">${(c.config?.budgetLines || []).map(budgetRow).join("")}</div>${access ? '<button type="button" class="button full" data-action="budget-add">+ بند صرف</button>' : ""}${access ? field("الوسوم المعتمدة — سطر لكل وسم", textarea("catalog_tags", (c.config?.tags || []).join("\n"), 3), true) : ""}<p class="form-note full">تعطيل البند يمنع استخدامه في طلبات جديدة ويحفظ العمليات السابقة. مراحل المهام موحدة: بدء، تنفيذ، مساندة عند الحاجة، مراجعة المدير، اكتمال معتمد.</p>`)}${actions("حفظ اللجنة وربط الوصول")}</form>`,
       async (fd, f) => {
         const b = {
@@ -599,6 +616,17 @@
           project_id: c.id ? c.project_id : fd.get("project_id"),
         };
         if (access) {
+          if (!f.querySelector("#newManagerFields").hidden) {
+            b.manager_new = {
+              name: fd.get("manager_name"),
+              phone: fd.get("manager_phone"),
+              email: fd.get("manager_email") || "",
+            };
+            delete b.manager_id;
+          }
+          delete b.manager_name;
+          delete b.manager_phone;
+          delete b.manager_email;
           b.members = [...f.querySelectorAll("[data-membership]")].map(
             (row) => ({
               id: row.querySelector("[name=membership_id]").value,
@@ -648,12 +676,40 @@
         const r = await api("committees/save", b, f.dataset.requestKey);
         project = b.project_id;
         committee = r.id;
-        toast("حُفظت اللجنة وارتبط مديرها بمسار الاعتماد");
+        toast(
+          r.manager_invitation === "accepted"
+            ? "حُفظت اللجنة وقبل واتساب إرسال دعوة المدير وكلمة المرور المؤقتة"
+            : r.manager_invitation
+              ? "حُفظت اللجنة وأضيف المدير. لم يتأكد إرسال الدعوة بعد؛ راجع سجل إشعارات واتساب."
+              : "حُفظت اللجنة وارتبط مديرها بمسار الاعتماد",
+        );
       },
       true,
     );
     const f = $("#modalBody form");
     if (access) {
+      const managerSelect = f.elements.namedItem("manager_id");
+      const toggle = f.querySelector("#newManagerToggle");
+      const fields = document.createElement("div");
+      fields.id = "newManagerFields";
+      fields.className = "form-grid full";
+      fields.hidden = true;
+      fields.innerHTML = `${field("اسم المدير *", input("manager_name", "", "text", 'disabled maxlength="120" autocomplete="name"'), true)}${field("رقم الجوال *", input("manager_phone", "", "tel", 'disabled dir="ltr" placeholder="05xxxxxxxx" autocomplete="tel"'))}${field("البريد الإلكتروني — اختياري", input("manager_email", "", "email", 'disabled dir="ltr" maxlength="180" autocomplete="email"'))}<p class="form-note full">عند حفظ اللجنة يُربط الرقم بحسابه إن كان مسجلًا، أو يُضاف مدير جديد. تصله دعوة واتساب باسم اللجنة والمشروع وكلمة مرور مؤقتة لاستخدام واحد خلال 24 ساعة.</p>`;
+      toggle.closest(".field").after(fields);
+      toggle.onclick = () => {
+        fields.hidden = !fields.hidden;
+        managerSelect.disabled = !fields.hidden;
+        toggle.setAttribute("aria-expanded", String(!fields.hidden));
+        toggle.textContent = fields.hidden
+          ? "+ إضافة مدير بالاسم والجوال"
+          : "اختيار مدير مسجل بدلًا من الإضافة";
+        for (const el of fields.querySelectorAll("input")) {
+          el.disabled = fields.hidden;
+          el.required = !fields.hidden && el.name !== "manager_email";
+        }
+        if (!fields.hidden)
+          fields.querySelector("input").focus({ preventScroll: true });
+      };
       const syncApprover = () => {
         const pid = c.id
             ? c.project_id
@@ -1490,7 +1546,7 @@
   function nailatSeasonPanel(y) {
     return `<section class="nw-season" id="nailat-season-${esc(y.edition)}" role="tabpanel" aria-labelledby="nailat-tab-${esc(y.edition)}" tabindex="0" ${y.edition !== nailatEdition ? "hidden" : ""}>
       <div class="nw-season-note"><span>مهرجان الملك عبدالعزيز للإبل</span><div class="nw-edition-number" aria-label="النسخة ${esc(y.edition)}">${esc(y.edition.padStart(2, "0"))}</div><h3>${esc(y.title)}</h3><p>نتائج منقية النائلات<br>لون الوضح · موسم <bdi>${esc(y.season)}</bdi></p></div>
-      <div class="nw-result-list">${y.awards.map(a => `<article class="nw-result" data-rank="${a.rank}"><div class="nw-place" aria-label="المركز ${a.rank}"><small>المركز</small><strong>${a.rank}</strong></div><div><h3>${esc(a.title)}</h3><p>الوضح${a.camel ? ` · <span class="nw-camel-name">${esc(a.camel)}</span>` : ""}</p></div>${a.date ? `<time datetime="${esc(a.date)}" dir="ltr">${esc(a.date.split("-").reverse().join(" / "))}</time>` : ""}</article>`).join("")}</div></section>`;
+      <div class="nw-result-list">${y.awards.map((a) => `<article class="nw-result" data-rank="${a.rank}"><div class="nw-place" aria-label="المركز ${a.rank}"><small>المركز</small><strong>${a.rank}</strong></div><div><h3>${esc(a.title)}</h3><p>الوضح${a.camel ? ` · <span class="nw-camel-name">${esc(a.camel)}</span>` : ""}</p></div>${a.date ? `<time datetime="${esc(a.date)}" dir="ltr">${esc(a.date.split("-").reverse().join(" / "))}</time>` : ""}</article>`).join("")}</div></section>`;
   }
   async function loadNailatResults() {
     const container = document.querySelector("#nailatResults");
@@ -1499,10 +1555,15 @@
       const { seasons } = await api("heritage-results");
       if (!container.isConnected) return;
       nailatAwards = seasons;
-      nailatEdition = seasons.some(s => s.edition === nailatEdition) ? nailatEdition : seasons[0]?.edition || "";
-      container.innerHTML = seasons.length ? `<div class="nw-year-tabs" role="tablist" aria-label="مواسم النائلات">${seasons.map(y => `<button id="nailat-tab-${esc(y.edition)}" role="tab" aria-controls="nailat-season-${esc(y.edition)}" aria-selected="${y.edition === nailatEdition}" tabindex="${y.edition === nailatEdition ? 0 : -1}" data-nailat-edition="${esc(y.edition)}"><strong dir="ltr">${esc(y.season)}</strong><small>النسخة ${esc(y.edition)}</small></button>`).join("")}</div>${seasons.map(nailatSeasonPanel).join("")}` : '<p>لا توجد نتائج مواسم متاحة حاليًا.</p>';
+      nailatEdition = seasons.some((s) => s.edition === nailatEdition)
+        ? nailatEdition
+        : seasons[0]?.edition || "";
+      container.innerHTML = seasons.length
+        ? `<div class="nw-year-tabs" role="tablist" aria-label="مواسم النائلات">${seasons.map((y) => `<button id="nailat-tab-${esc(y.edition)}" role="tab" aria-controls="nailat-season-${esc(y.edition)}" aria-selected="${y.edition === nailatEdition}" tabindex="${y.edition === nailatEdition ? 0 : -1}" data-nailat-edition="${esc(y.edition)}"><strong dir="ltr">${esc(y.season)}</strong><small>النسخة ${esc(y.edition)}</small></button>`).join("")}</div>${seasons.map(nailatSeasonPanel).join("")}`
+        : "<p>لا توجد نتائج مواسم متاحة حاليًا.</p>";
     } catch (error) {
-      if (container.isConnected) container.innerHTML = `<p role="alert">${esc(error.message)}</p><button class="button button-ghost" data-action="heritage-public-reload">إعادة المحاولة</button>`;
+      if (container.isConnected)
+        container.innerHTML = `<p role="alert">${esc(error.message)}</p><button class="button button-ghost" data-action="heritage-public-reload">إعادة المحاولة</button>`;
     } finally {
       if (container.isConnected) container.setAttribute("aria-busy", "false");
     }
@@ -1729,7 +1790,17 @@
       },
     );
   }
-  const heritageAdminContext = () => ({ api, esc, btn, heading, field, input, actions, modal, toast });
+  const heritageAdminContext = () => ({
+    api,
+    esc,
+    btn,
+    heading,
+    field,
+    input,
+    actions,
+    modal,
+    toast,
+  });
   function render(animate = true) {
     if (!S) return;
     document.body.classList.toggle("landing-mode", page === "heritage");

@@ -9,6 +9,11 @@ import {
   whatsapp,
 } from "./integrations.js";
 import { httpsOrigin, jsonBody } from "./security.js";
+import {
+  normalizeMemberPhone,
+  invitationDigest,
+} from "./committee-invitations.js";
+import { permitted, withCommittees } from "./domain.js";
 
 export const SESSION_COOKIE = "__Host-diwan-session";
 const CHALLENGE_COOKIE = "__Host-diwan-challenge";
@@ -31,20 +36,7 @@ const cookie = (req, name) =>
     ?.slice(name.length + 1) || "";
 const cookieHeader = (name, value, age) =>
   `${name}=${value}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${age}`;
-export function normalizeLoginPhone(value) {
-  let phone = String(value || "")
-    .trim()
-    .replace(/[٠-٩]/g, (n) => String(n.charCodeAt(0) - 1632))
-    .replace(/[۰-۹]/g, (n) => String(n.charCodeAt(0) - 1776))
-    .replace(/[\s()-]/g, "");
-  if (/^05\d{8}$/.test(phone)) phone = "+966" + phone.slice(1);
-  else if (/^5\d{8}$/.test(phone)) phone = "+966" + phone;
-  else if (/^00/.test(phone)) phone = "+" + phone.slice(2);
-  else if (/^9665\d{8}$/.test(phone)) phone = "+" + phone;
-  if (!/^\+[1-9]\d{7,14}$/.test(phone))
-    throw integrationError("أدخل رقم جوال صحيحًا مع رمز الدولة.");
-  return phone;
-}
+export const normalizeLoginPhone = normalizeMemberPhone;
 function ensureEnabled(env) {
   if (env.DIWAN_AUTH_ENABLED !== "true" || !integrationStatus(env).phone)
     throw integrationError("الدخول غير متاح مؤقتًا. حاول لاحقًا.", 503);
@@ -178,7 +170,65 @@ async function verifyCode(req, env) {
     )
   )
     throw invalid();
-  const memberId = c.site_id.slice(6);
+  return createSession(env, c, c.site_id.slice(6), invalid);
+}
+async function verifyInvitation(req, env) {
+  ensureEnabled(env);
+  const body = await jsonBody(req, 2048);
+  const phone = normalizeMemberPhone(body.phone);
+  const invalid = () =>
+    integrationError(
+      "كلمة المرور المؤقتة غير صحيحة أو انتهت صلاحيتها. يمكنك الدخول برمز واتساب.",
+    );
+  const ip = (req.headers.get("x-forwarded-for") || "unknown")
+    .split(",")[0]
+    .trim();
+  await limits(env.DB, [
+    ["manager-login:ip:" + hash(ip), 30, 900],
+    ["manager-login:phone:" + (await hmac(env.OTP_SECRET, phone)), 10, 900],
+  ]);
+  const c = await env.DB.prepare(
+    "UPDATE nl_otp SET attempts=attempts+1 WHERE id=(SELECT id FROM nl_otp WHERE phone=? AND site_id LIKE 'manager:%' AND used=0 ORDER BY created DESC LIMIT 1) AND status='sent' AND expires>? AND attempts<5 RETURNING *",
+  )
+    .bind(phone, Date.now())
+    .first();
+  const code = String(body.code || "")
+    .trim()
+    .toUpperCase();
+  if (
+    !c ||
+    !/^[A-F0-9]{12}$/.test(code) ||
+    !equal(c.hash, await invitationDigest(env, c, code))
+  )
+    throw invalid();
+  const [, memberId, committeeId] = c.site_id.split(":");
+  const member = await env.DB.prepare(
+    "SELECT * FROM nl_members WHERE id=? AND phone=? AND status='active'",
+  )
+    .bind(memberId, phone)
+    .first();
+  const committee = await env.DB.prepare(
+    "SELECT * FROM nl_committees WHERE id=? AND manager_id=?",
+  )
+    .bind(committeeId, memberId)
+    .first();
+  const bundles = (await env.DB.prepare("SELECT * FROM nl_bundles").all())
+    .results;
+  if (
+    !member ||
+    !committee ||
+    !permitted(
+      withCommittees(member, [committee]),
+      "committees",
+      "view",
+      committee,
+      bundles,
+    )
+  )
+    throw invalid();
+  return createSession(env, c, memberId, invalid, committeeId);
+}
+async function createSession(env, c, memberId, invalid, committeeId = null) {
   const session = freshToken();
   const now = Date.now();
   const member = await env.DB.prepare(
@@ -190,8 +240,8 @@ async function verifyCode(req, env) {
   try {
     await env.DB.batch([
       env.DB.prepare(
-        "UPDATE nl_otp SET used=1 WHERE id=? AND used=0 AND expires>? AND attempts<=5",
-      ).bind(c.id, now),
+        "UPDATE nl_otp SET used=1 WHERE id=? AND used=0 AND expires>? AND attempts<=5 AND (?='' OR EXISTS(SELECT 1 FROM nl_committees c JOIN nl_projects p ON p.id=c.project_id WHERE c.id=? AND c.manager_id=? AND p.status<>'closed'))",
+      ).bind(c.id, now, committeeId || "", committeeId, memberId),
       env.DB.prepare("INSERT INTO nl_guards VALUES(?,changes())").bind(
         crypto.randomUUID(),
       ),
@@ -211,11 +261,12 @@ async function verifyCode(req, env) {
         now,
       ),
       env.DB.prepare(
-        "INSERT INTO nl_audit(id,actor,action,resource,entity_id,detail,created) VALUES(?,?,'login','users',?,'WhatsApp OTP',?)",
+        "INSERT INTO nl_audit(id,actor,action,resource,entity_id,detail,created) VALUES(?,?,'login','users',?,?,?)",
       ).bind(
         crypto.randomUUID(),
         memberId,
         memberId,
+        committeeId ? "Committee invitation" : "WhatsApp OTP",
         new Date(now).toISOString(),
       ),
     ]);
@@ -250,6 +301,7 @@ export async function loginEndpoint(req, env, action) {
     ensureOrigin(req, env);
     if (action === "request") return await requestCode(req, env);
     if (action === "verify") return await verifyCode(req, env);
+    if (action === "invitation") return await verifyInvitation(req, env);
     if (action === "logout") {
       const token = cookie(req, SESSION_COOKIE);
       if (tokenPattern.test(token))
