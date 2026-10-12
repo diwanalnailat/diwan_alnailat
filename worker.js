@@ -1,4 +1,6 @@
 import { resolveGoogleMaps } from "./lib/google-maps.js";
+import { inlineDatabase, prepareInlinePeople } from "./lib/inline-people.js";
+import { personInvitationEligible } from "./lib/person-invitations.js";
 import {
   managerInvitation,
   invitationPassword,
@@ -136,6 +138,8 @@ const tables = {
   documents: "nl_guides",
 };
 const record = async (db, type, id) => {
+  const pending = db.inline?.records.get(type + ":" + id);
+  if (pending) return pending;
   const table = tables[type];
   if (!table) fail("نوع سجل غير صالح");
   const r = await one(db, `SELECT * FROM ${table} WHERE id=?`, string(id));
@@ -298,13 +302,22 @@ async function context(req, env, migrated = false) {
   };
 }
 async function commit(db, c, request, body, stmts, result, guarded = false) {
+  if (db.inline)
+    result = {
+      ...result,
+      inline_people_resolved: db.inline.resolved,
+      people_invitation: "queued",
+    };
   const key = request.headers.get("idempotency-key") || uid();
   if (!/^[a-zA-Z0-9_-]{8,100}$/.test(key)) fail("معرف الطلب غير صالح");
-  const hash = await digest(request.url + "|" + JSON.stringify(body));
+  const hash = await digest(
+    request.url + "|" + JSON.stringify(db.inline?.originalBody || body),
+  );
   const prior = await one(db, "SELECT * FROM nl_receipts WHERE id=?", key);
   if (prior) {
     if (prior.actor !== c.u.id || prior.hash !== hash)
       fail("معرف الطلب مستخدم لعملية مختلفة", 409);
+    if (db.inline) db.inline.cancelled = true;
     return json(parse(prior.result));
   }
   const list = [
@@ -323,8 +336,10 @@ async function commit(db, c, request, body, stmts, result, guarded = false) {
     await db.batch(list);
   } catch (e) {
     const prev = await one(db, "SELECT * FROM nl_receipts WHERE id=?", key);
-    if (prev && prev.actor === c.u.id && prev.hash === hash)
+    if (prev && prev.actor === c.u.id && prev.hash === hash) {
+      if (db.inline) db.inline.cancelled = true;
       return json(parse(prev.result));
+    }
     if (String(e.message).includes("nl_guard_changed"))
       fail(
         "تغيرت البيانات أو لم يعد الرصيد كافيًا. حدّث الصفحة وأعد المحاولة.",
@@ -354,6 +369,8 @@ function validateCustom(meta, settings) {
 }
 async function activeMember(db, id, optional = false) {
   if (!id && optional) return null;
+  const pending = db.inline?.records.get("users:" + id);
+  if (pending) return pending;
   const m = await one(
     db,
     "SELECT * FROM nl_members WHERE id=? AND status='active'",
@@ -1286,6 +1303,17 @@ async function handle(req, env) {
       return json(parse(prior.result));
     }
   }
+  await prepareInlinePeople(db, c, b, p, env, {
+    record,
+    grant: ensureGrantAccess,
+  });
+  if (db.inline)
+    c.inlineCommit = async (statements, result) =>
+      (await commit(db, c, req, b, statements, result)).json();
+  if (p === "/api/join-requests/forward" && db.inline) {
+    const result = await reviewJoin(db, c, b, "forward");
+    return json(result);
+  }
   if (p === "/api/join-requests/forward")
     return json(await reviewJoin(db, c, b, "forward"));
   if (p === "/api/join-requests/decide")
@@ -1323,7 +1351,7 @@ async function handle(req, env) {
       old ? "edit" : "create",
       old || { project_id: project.id },
     );
-    const id = old?.id || uid();
+    const id = old?.id || db.inline?.recordId || uid();
     const members =
       b.members === undefined
         ? parse(old?.members, [])
@@ -1587,7 +1615,7 @@ async function handle(req, env) {
     const project = await record(db, "projects", parent.project_id);
     if (project.status === "closed") fail("المشروع مغلق");
     const recipient = await activeMember(db, b.recipient_id);
-    const id = uid(),
+    const id = db.inline?.recordId || uid(),
       board = taskStatuses(c.settings, c.committees, parent);
     const meta = {
       committee_id: parse(parent.meta).committee_id || null,
@@ -1803,7 +1831,7 @@ async function handle(req, env) {
       )
         fail("إثبات حركة العهدة غير صالح");
     }
-    const id = old?.id || uid(),
+    const id = old?.id || db.inline?.recordId || uid(),
       entry = uid(),
       type = old ? choice(b.type, ["fund", "return"]) : "fund",
       amount = money(b.amount),
@@ -1996,7 +2024,7 @@ async function handle(req, env) {
     );
     if (old && old.project_id !== project.id)
       fail("نقل المهمة بين المشاريع غير متاح من هذا النموذج");
-    const id = old?.id || uid(),
+    const id = old?.id || db.inline?.recordId || uid(),
       assignee = b.assignee_id || null;
     await activeMember(db, assignee, true);
     if (assignee !== (old?.assignee_id || null))
@@ -3881,7 +3909,7 @@ async function handle(req, env) {
       c.need("tasks", "edit", task);
       if (task.project_id !== project.id) fail("المهمة من مشروع آخر");
     }
-    const id = old?.id || uid(),
+    const id = old?.id || db.inline?.recordId || uid(),
       content = {
         sections: (b.content.sections || []).slice(0, 20).map((x) => ({
           title: string(x.title, 150),
@@ -4100,26 +4128,27 @@ export async function dispatchNotifications(env, onlyId = null) {
       entity = null;
     }
     const recipient = m ? withCommittees(m, committees) : null;
-    const invite =
-      n.resource === "committees"
-        ? await one(
-            db,
-            "SELECT * FROM nl_otp WHERE id=? AND site_id LIKE 'manager:%'",
-            n.id,
-          )
-        : null;
+    const invite = await one(
+      db,
+      "SELECT * FROM nl_otp WHERE id=? AND (site_id LIKE 'manager:%' OR site_id LIKE 'person:%')",
+      n.id,
+    );
+    const personNotice =
+      invite?.site_id.startsWith("person:") &&
+      (await personInvitationEligible(db, invite, m));
     const inviteProject = invite
       ? await one(db, "SELECT status FROM nl_projects WHERE id=?", n.project_id)
       : null;
     const managerNotice =
-      invite &&
-      !invite.used &&
-      invite.expires > Date.now() &&
-      invite.phone === m?.phone &&
-      invite.site_id === `manager:${m?.id}:${entity?.id}` &&
-      entity?.manager_id === m?.id &&
-      inviteProject &&
-      inviteProject.status !== "closed";
+      personNotice ||
+      (invite &&
+        !invite.used &&
+        invite.expires > Date.now() &&
+        invite.phone === m?.phone &&
+        invite.site_id === `manager:${m?.id}:${entity?.id}` &&
+        entity?.manager_id === m?.id &&
+        inviteProject &&
+        inviteProject.status !== "closed");
     const joinNotification = n.resource === "join_requests";
     const recipientContext = {
       u: recipient,
@@ -4139,15 +4168,18 @@ export async function dispatchNotifications(env, onlyId = null) {
       !m.phone ||
       (!pref?.whatsapp && !configuredAdmin && !(managerNotice && !pref)) ||
       !entity ||
-      !(joinNotification
-        ? mayReadJoin(recipientContext, entity)
-        : permitted(
-            withCommittees(m, committees),
-            n.resource,
-            "view",
-            entity,
-            bundles,
-          ))
+      !(
+        personNotice ||
+        (joinNotification
+          ? mayReadJoin(recipientContext, entity)
+          : permitted(
+              withCommittees(m, committees),
+              n.resource,
+              "view",
+              entity,
+              bundles,
+            ))
+      )
     ) {
       await db
         .prepare(
@@ -4237,7 +4269,10 @@ export default {
   },
   async fetch(req, env, ctx) {
     try {
+      const storage = env.DB;
+      env = { ...env, DB: inlineDatabase(env.DB) };
       const result = await handle(req, env);
+      env.DB = storage;
       if (
         ctx?.waitUntil &&
         req.method === "POST" &&

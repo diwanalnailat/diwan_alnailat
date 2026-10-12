@@ -255,6 +255,24 @@
     toast.timer = setTimeout(() => (t.hidden = true), 5000);
   }
   async function api(path, body, key) {
+    if (body && typeof body === "object") {
+      const tokens = new Set();
+      const collect = (value) => {
+        if (
+          typeof value === "string" &&
+          /^new-person:[a-f\d-]{36}$/i.test(value)
+        )
+          tokens.add(value);
+        else if (Array.isArray(value)) value.forEach(collect);
+        else if (value && typeof value === "object")
+          Object.values(value).forEach(collect);
+      };
+      collect(body);
+      const people = [...tokens].map(inlinePersonDefinition);
+      if (people.some((person) => !person))
+        throw Error("أعد إضافة الشخص في هذا النموذج قبل الحفظ.");
+      if (people.length) body = { ...body, inline_people: people };
+    }
     const opts =
       body === undefined
         ? {}
@@ -274,6 +292,34 @@
       throw Error("تعذر الاتصال بالديوان. حاول مرة أخرى.");
     }
     if (!res.ok) throw Error(data.error || "تعذر تنفيذ الطلب");
+    if (data.inline_people_resolved) {
+      const resolved = data.inline_people_resolved;
+      for (const form of document.querySelectorAll("form")) {
+        for (const control of form.querySelectorAll(
+          "option,input[type=checkbox]",
+        )) {
+          if (resolved[control.value]) {
+            if (control.tagName === "OPTION")
+              control.textContent = control.textContent.replace(
+                / · سيُضاف عند الحفظ$/,
+                "",
+              );
+            control.value = resolved[control.value];
+          }
+        }
+      }
+      const replace = (value) => {
+        if (typeof value === "string") return resolved[value] || value;
+        if (Array.isArray(value)) return value.map(replace);
+        if (value && typeof value === "object") {
+          for (const key of Object.keys(value))
+            value[key] = replace(value[key]);
+        }
+        return value;
+      };
+      replace(body);
+      if (assistantDraft) replace(assistantDraft);
+    }
     return data;
   }
   async function refresh(renderPage = true) {
@@ -573,8 +619,7 @@
       c.manager_id || "",
       access ? 'aria-label="مدير اللجنة"' : 'disabled aria-label="مدير اللجنة"',
     );
-    if (!access) return existing;
-    return `${existing}<button type="button" class="button" id="newManagerToggle" aria-expanded="false" aria-controls="newManagerFields">+ إضافة مدير بالاسم والجوال</button>`;
+    return existing;
   }
   function committeeForm(id) {
     const c = S.committees.find((c) => c.id === id) || {
@@ -616,17 +661,6 @@
           project_id: c.id ? c.project_id : fd.get("project_id"),
         };
         if (access) {
-          if (!f.querySelector("#newManagerFields").hidden) {
-            b.manager_new = {
-              name: fd.get("manager_name"),
-              phone: fd.get("manager_phone"),
-              email: fd.get("manager_email") || "",
-            };
-            delete b.manager_id;
-          }
-          delete b.manager_name;
-          delete b.manager_phone;
-          delete b.manager_email;
           b.members = [...f.querySelectorAll("[data-membership]")].map(
             (row) => ({
               id: row.querySelector("[name=membership_id]").value,
@@ -677,39 +711,19 @@
         project = b.project_id;
         committee = r.id;
         toast(
-          r.manager_invitation === "accepted"
-            ? "حُفظت اللجنة وقبل واتساب إرسال دعوة المدير وكلمة المرور المؤقتة"
-            : r.manager_invitation
-              ? "حُفظت اللجنة وأضيف المدير. لم يتأكد إرسال الدعوة بعد؛ راجع سجل إشعارات واتساب."
-              : "حُفظت اللجنة وارتبط مديرها بمسار الاعتماد",
+          r.people_invitation === "queued"
+            ? "حُفظت اللجنة وأضيف الأشخاص. جُهزت دعوات واتساب ويمكن متابعة حالة إرسالها من الإشعارات."
+            : r.manager_invitation === "accepted"
+              ? "حُفظت اللجنة وقبل واتساب إرسال دعوة المدير وكلمة المرور المؤقتة"
+              : r.manager_invitation
+                ? "حُفظت اللجنة وأضيف المدير. لم يتأكد إرسال الدعوة بعد؛ راجع سجل إشعارات واتساب."
+                : "حُفظت اللجنة وارتبط مديرها بمسار الاعتماد",
         );
       },
       true,
     );
     const f = $("#modalBody form");
     if (access) {
-      const managerSelect = f.elements.namedItem("manager_id");
-      const toggle = f.querySelector("#newManagerToggle");
-      const fields = document.createElement("div");
-      fields.id = "newManagerFields";
-      fields.className = "form-grid full";
-      fields.hidden = true;
-      fields.innerHTML = `${field("اسم المدير *", input("manager_name", "", "text", 'disabled maxlength="120" autocomplete="name"'), true)}${field("رقم الجوال *", input("manager_phone", "", "tel", 'disabled dir="ltr" placeholder="05xxxxxxxx" autocomplete="tel"'))}${field("البريد الإلكتروني — اختياري", input("manager_email", "", "email", 'disabled dir="ltr" maxlength="180" autocomplete="email"'))}<p class="form-note full">عند حفظ اللجنة يُربط الرقم بحسابه إن كان مسجلًا، أو يُضاف مدير جديد. تصله دعوة واتساب باسم اللجنة والمشروع وكلمة مرور مؤقتة لاستخدام واحد خلال 24 ساعة.</p>`;
-      toggle.closest(".field").after(fields);
-      toggle.onclick = () => {
-        fields.hidden = !fields.hidden;
-        managerSelect.disabled = !fields.hidden;
-        toggle.setAttribute("aria-expanded", String(!fields.hidden));
-        toggle.textContent = fields.hidden
-          ? "+ إضافة مدير بالاسم والجوال"
-          : "اختيار مدير مسجل بدلًا من الإضافة";
-        for (const el of fields.querySelectorAll("input")) {
-          el.disabled = fields.hidden;
-          el.required = !fields.hidden && el.name !== "manager_email";
-        }
-        if (!fields.hidden)
-          fields.querySelector("input").focus({ preventScroll: true });
-      };
       const syncApprover = () => {
         const pid = c.id
             ? c.project_id
@@ -728,6 +742,7 @@
             .map((u) => `<option value="${esc(u.id)}">${esc(u.name)}</option>`)
             .join("");
         sel.value = candidates.some((u) => u.id === selected) ? selected : "";
+        preservePendingOptions(sel, selected, [manager]);
         const ds = f.elements.namedItem("review_delegate_id"),
           current = ds.value;
         const choices = candidates.filter((u) => u.id !== sel.value);
@@ -737,6 +752,7 @@
             .map((u) => `<option value="${esc(u.id)}">${esc(u.name)}</option>`)
             .join("");
         ds.value = choices.some((u) => u.id === current) ? current : "";
+        preservePendingOptions(ds, current, [manager, sel.value]);
       };
       f.elements
         .namedItem("second_approver_id")
@@ -1686,10 +1702,6 @@
     if (forward) {
       if (!request.can_forward || !request.committee_id)
         throw new Error("لا يمكن إحالة هذا الطلب إلى مشرف.");
-      if (!supervisors.length)
-        throw new Error(
-          "لا يوجد مشرف متاح في هذه اللجنة. عيّن مشرفًا من إدارة اللجنة أولًا.",
-        );
       modal(
         "إحالة طلب الانضمام",
         `<form class="form-grid"><div class="full">${details}</div>${field("المشرف في اللجنة المطلوبة", select("supervisor_id", [["", "اختر مشرفًا"], ...supervisors.map((item) => [item.id, item.name])], request.assigned_to || "", "required"), true)}<p class="form-note full">سيظهر الطلب للمشرف المحدد فقط، ويمكنه قبوله أو رفضه.</p>${actions("إحالة الطلب")}</form>`,
@@ -1867,12 +1879,149 @@
     `<input class="input" name="${name}" type="${type}" value="${esc(value)}" ${extra}>`;
   const textarea = (name, value = "", rows = 3, extra = "") =>
     `<textarea class="input" name="${name}" rows="${rows}" ${extra}>${esc(value)}</textarea>`;
-  const select = (name, options, value = "", extra = "") =>
-    `<select class="input" name="${name}" ${extra}>${options.map(([id, label]) => `<option value="${esc(id)}" ${String(id) === String(value) ? "selected" : ""}>${esc(label)}</option>`).join("")}</select>`;
+  const inlinePeople = new WeakMap();
+  const personFields = new Set([
+    "manager_id",
+    "second_approver_id",
+    "review_delegate_id",
+    "membership_id",
+    "assignee_id",
+    "recipient_id",
+    "member_id",
+    "supervisor_id",
+    "claimant_id",
+    "collaborators",
+    "mentions",
+  ]);
+  const personFieldLabels = {
+    manager_id: "مدير اللجنة",
+    second_approver_id: "المعتمد الثاني للمصاريف",
+    review_delegate_id: "بديل الاعتماد عند تعارض المصالح",
+    membership_id: "العضو",
+    assignee_id: "الشخص المسؤول",
+    recipient_id: "المسؤول عن تلبية الطلب",
+    member_id: "العضو المستلم أو المعيد",
+    supervisor_id: "مشرف اللجنة",
+    claimant_id: "صاحب المصروف",
+    collaborators: "المشاركون",
+    mentions: "إشعار أشخاص محددين",
+  };
+  function inlinePersonDefinition(token) {
+    for (const form of document.querySelectorAll("form")) {
+      const person = inlinePeople.get(form)?.get(token);
+      if (person) return person;
+    }
+  }
+  function personPicker(name, content, disabled = false) {
+    if (!personFields.has(name) || disabled || !S || !can("users", "manage"))
+      return content;
+    const panelId = "person-" + crypto.randomUUID();
+    const hint =
+      name === "mentions"
+        ? "سيُضاف الشخص مشاركًا في هذه المهمة ليتمكن من قراءة الرسالة ومتابعتها."
+        : ["second_approver_id", "review_delegate_id"].includes(name)
+          ? "سيُمنح حق مشاهدة المصروفات واعتمادها لهذه اللجنة فقط، وفق صلاحياتك. يجب أن يكون المعتمد والبديل شخصين مختلفين عن مدير اللجنة."
+          : name === "member_id"
+            ? "عند الاسترجاع يجب أن تكون لدى الشخص عهدة سابقة من هذا الأصل."
+            : "يُربط رقم الجوال بحسابه إن كان مسجلًا، أو يُنشأ له حساب عند حفظ النموذج.";
+    return `<div class="person-picker" data-person-picker="${name}">${content}<button type="button" class="button button-ghost compact" data-action="inline-person-toggle" aria-expanded="false" aria-controls="${panelId}">+ إضافة شخص بالاسم والجوال</button><div class="person-picker-fields" id="${panelId}" hidden><label class="field"><span>الاسم *</span><input class="input" data-person-name maxlength="120" autocomplete="name" disabled></label><label class="field"><span>رقم الجوال *</span><input class="input" data-person-phone type="tel" dir="ltr" placeholder="05xxxxxxxx" autocomplete="tel" disabled></label><label class="field"><span>البريد الإلكتروني — اختياري</span><input class="input" data-person-email type="email" dir="ltr" maxlength="180" autocomplete="email" disabled></label><p class="form-note person-picker-hint">${hint}</p><p class="form-note" data-person-guide-hint hidden>هذا اختيار مقترح للدليل؛ إسناد المهمة يتم بعد مراجعة نموذج المهمة وحفظه.</p><p class="form-note">لن تُحفظ الإضافة إلا مع حفظ النموذج. تُجهز دعوة واتساب وكلمة مرور مؤقتة؛ يمكن متابعة حالة الإرسال من الإشعارات.</p><div class="person-picker-actions"><button type="button" class="button compact" data-action="inline-person-add">إضافة للاختيار</button><button type="button" class="button button-ghost compact" data-action="inline-person-cancel">إلغاء الإضافة</button></div></div><span class="form-note" data-person-status aria-live="polite"></span></div>`;
+  }
+  function setPersonPanel(picker, open) {
+    const panel = picker.querySelector(".person-picker-fields");
+    panel.hidden = !open;
+    picker
+      .querySelector("[data-action=inline-person-toggle]")
+      .setAttribute("aria-expanded", String(open));
+    for (const el of panel.querySelectorAll("input")) {
+      el.disabled = !open;
+      el.required = open && !el.hasAttribute("data-person-email");
+    }
+    panel.querySelector("[data-person-guide-hint]").hidden =
+      !picker.closest("#guideForm");
+    if (open) panel.querySelector("input").focus({ preventScroll: true });
+  }
+  function stageInlinePerson(picker) {
+    const panel = picker.querySelector(".person-picker-fields"),
+      form = picker.closest("form");
+    const name = panel.querySelector("[data-person-name]"),
+      phone = panel.querySelector("[data-person-phone]"),
+      email = panel.querySelector("[data-person-email]");
+    name.value = name.value.trim();
+    phone.value = phone.value.trim();
+    email.value = email.value.trim();
+    for (const input of [name, phone, email])
+      if (!input.reportValidity()) return false;
+    const target = picker.querySelector("select,[data-choice-group]");
+    if (!form || target?.disabled || !can("users", "manage")) return false;
+    const token = "new-person:" + crypto.randomUUID();
+    if (!inlinePeople.has(form)) inlinePeople.set(form, new Map());
+    inlinePeople
+      .get(form)
+      .set(token, {
+        token,
+        name: name.value,
+        phone: phone.value,
+        ...(email.value ? { email: email.value } : {}),
+      });
+    if (target.tagName === "SELECT") {
+      target.insertAdjacentHTML(
+        "beforeend",
+        `<option value="${token}">${esc(name.value)} · سيُضاف عند الحفظ</option>`,
+      );
+      target.value = token;
+    } else {
+      if (!target.querySelector("input")) target.textContent = "";
+      target.className = "choice-list";
+      target.insertAdjacentHTML(
+        "beforeend",
+        `<label class="checkbox-line"><input type="checkbox" name="${esc(picker.dataset.personPicker)}" value="${token}" checked> ${esc(name.value)} · سيُضاف عند الحفظ</label>`,
+      );
+    }
+    picker.querySelector("[data-person-status]").textContent =
+      "أُضيف إلى الاختيار. احفظ النموذج لتأكيد الإضافة والدعوة.";
+    setPersonPanel(picker, false);
+    for (const input of [name, phone, email]) input.value = "";
+    target.dispatchEvent(new Event("change", { bubbles: true }));
+    picker
+      .querySelector("[data-action=inline-person-toggle]")
+      .focus({ preventScroll: true });
+    return true;
+  }
+  function preservePendingOptions(select, selected, exclude = []) {
+    const pending = inlinePeople.get(select.closest("form"));
+    for (const person of pending?.values() || []) {
+      if (
+        exclude.includes(person.token) ||
+        [...select.options].some((o) => o.value === person.token)
+      )
+        continue;
+      select.insertAdjacentHTML(
+        "beforeend",
+        `<option value="${esc(person.token)}">${esc(person.name)} · سيُضاف عند الحفظ</option>`,
+      );
+    }
+    if ([...select.options].some((option) => option.value === selected))
+      select.value = selected;
+  }
+  const select = (name, options, value = "", extra = "") => {
+    const staged = inlinePersonDefinition(value);
+    if (staged && !options.some(([id]) => id === value))
+      options = [...options, [value, staged.name + " · سيُضاف عند الحفظ"]];
+    if (personFieldLabels[name] && !/aria-label/.test(extra))
+      extra += ` aria-label="${personFieldLabels[name]}"`;
+    return personPicker(
+      name,
+      `<select class="input" name="${name}" ${extra}>${options.map(([id, label]) => `<option value="${esc(id)}" ${String(id) === String(value) ? "selected" : ""}>${esc(label)}</option>`).join("")}</select>`,
+      /\bdisabled\b/.test(extra),
+    );
+  };
   const multi = (name, options, values = []) =>
-    options.length
-      ? `<div class="choice-list" data-choice-group="${name}">${options.map(([id, label]) => `<label class="checkbox-line"><input type="checkbox" name="${name}" value="${esc(id)}" ${values.includes(id) ? "checked" : ""}> ${esc(label)}</label>`).join("")}</div>`
-      : `<div class="muted" data-choice-group="${name}">لا توجد خيارات بعد.</div>`;
+    personPicker(
+      name,
+      options.length
+        ? `<div class="choice-list" data-choice-group="${name}">${options.map(([id, label]) => `<label class="checkbox-line"><input type="checkbox" name="${name}" value="${esc(id)}" ${values.includes(id) ? "checked" : ""}> ${esc(label)}</label>`).join("")}</div>`
+        : `<div class="muted" data-choice-group="${name}">لا توجد خيارات بعد.</div>`,
+    );
   const uploadField = (camera = false) =>
     field(
       "المرفقات",
@@ -2343,6 +2492,8 @@
     });
     f.querySelector("[name=committee_id]")?.addEventListener("change", (e) => {
       const cc = S.committees.find((c) => c.id === e.target.value);
+      const assigneeSelect = f.querySelector("[name=assignee_id]"),
+        selectedAssignee = assigneeSelect.value;
       f.querySelector("[name=manager_display]").value = cc.manager_id
         ? person(cc.manager_id)
         : "لم يُعين مدير اللجنة";
@@ -2352,12 +2503,32 @@
           .filter((p) => cc.members.some((m) => m.id === p.id))
           .map((p) => `<option value="${p.id}">${esc(p.name)}</option>`)
           .join("");
-      f.querySelector("[data-choice-group=collaborators]").outerHTML = multi(
+      preservePendingOptions(assigneeSelect, selectedAssignee);
+      const collaborators = f.querySelector(
+        "[data-choice-group=collaborators]",
+      );
+      const selectedCollaborators = [
+        ...collaborators.querySelectorAll("input:checked"),
+      ].map((input) => input.value);
+      const pendingCollaborators = selectedCollaborators.filter(
+        inlinePersonDefinition,
+      );
+      const collaboratorChoices = document.createElement("div");
+      collaboratorChoices.innerHTML = multi(
         "collaborators",
-        S.people
-          .filter((p) => cc.members.some((m) => m.id === p.id))
-          .map((p) => [p.id, p.name]),
-        [],
+        [
+          ...S.people
+            .filter((p) => cc.members.some((m) => m.id === p.id))
+            .map((p) => [p.id, p.name]),
+          ...pendingCollaborators.map((token) => [
+            token,
+            inlinePersonDefinition(token).name + " · سيُضاف عند الحفظ",
+          ]),
+        ],
+        selectedCollaborators,
+      );
+      collaborators.replaceWith(
+        collaboratorChoices.querySelector("[data-choice-group=collaborators]"),
       );
       f.querySelector("[data-choice-group=tags]").outerHTML = multi(
         "tags",
@@ -3065,10 +3236,13 @@
     );
     $("#modalBody [name=committee_id]")?.addEventListener("change", (e) => {
       const cc = cs.find((c) => c.id === e.target.value);
+      const assignee = $("#modalBody [name=assignee_id]"),
+        selected = assignee.value;
       $("#modalBody [name=assignee_id]").innerHTML = S.people
         .filter((p) => cc.members.some((m) => m.id === p.id))
         .map((p) => `<option value="${p.id}">${esc(p.name)}</option>`)
         .join("");
+      preservePendingOptions(assignee, selected);
     });
   }
   function advanceDetail(id) {
@@ -5360,6 +5534,25 @@
     )
       $("#assistant").close();
     switch (a) {
+      case "inline-person-toggle": {
+        const picker = el.closest("[data-person-picker]");
+        setPersonPanel(
+          picker,
+          picker.querySelector(".person-picker-fields").hidden,
+        );
+        break;
+      }
+      case "inline-person-cancel": {
+        const picker = el.closest("[data-person-picker]");
+        setPersonPanel(picker, false);
+        picker
+          .querySelector("[data-action=inline-person-toggle]")
+          .focus({ preventScroll: true });
+        break;
+      }
+      case "inline-person-add":
+        stageInlinePerson(el.closest("[data-person-picker]"));
+        break;
       case "heritage-public-reload":
         await loadNailatResults();
         break;
@@ -5542,6 +5735,11 @@
       case "menu":
         $("#sidebar").classList.toggle("open");
         syncMenu();
+        if (
+          window.innerWidth <= 860 &&
+          !$("#sidebar").classList.contains("open")
+        )
+          $(".mobile-menu").focus({ preventScroll: true });
         break;
       case "theme":
         document.body.classList.toggle("dark");
@@ -5908,6 +6106,23 @@
       toast(e.message, true);
     }
   });
+  // Stage completed inline entries before each real form serializes its data.
+  document.addEventListener(
+    "submit",
+    (ev) => {
+      const form = ev.target;
+      for (const panel of form.querySelectorAll(
+        ".person-picker-fields:not([hidden])",
+      )) {
+        if (!stageInlinePerson(panel.closest("[data-person-picker]"))) {
+          ev.preventDefault();
+          ev.stopImmediatePropagation();
+          return;
+        }
+      }
+    },
+    true,
+  );
   document.addEventListener("change", async (ev) => {
     const el = ev.target;
     try {
@@ -5931,9 +6146,10 @@
         const row = el.closest("[data-membership]");
         const id = row.querySelector("[name=membership_id]").value;
         const selectedManager = $("#modalBody [name=manager_id]");
-        if (el.value === "manager" && selectedManager)
+        if (el.value === "manager" && selectedManager) {
+          preservePendingOptions(selectedManager, id);
           selectedManager.value = id;
-        else if (selectedManager?.value === id) selectedManager.value = "";
+        } else if (selectedManager?.value === id) selectedManager.value = "";
         row.outerHTML = committeeMemberRow({
           id,
           role: el.value,
@@ -6133,7 +6349,10 @@
     if (e.key === "Escape" && $("#sidebar").classList.contains("open")) {
       $("#sidebar").classList.remove("open");
       syncMenu();
-      $(".mobile-menu").focus();
+      (window.innerWidth <= 860
+        ? $(".mobile-menu")
+        : $(".sidebar-toggle")
+      ).focus({ preventScroll: true });
     }
     if ((e.ctrlKey || e.metaKey) && e.key === "k") {
       e.preventDefault();

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { JSDOM } from "jsdom";
-import worker from "../worker.js";
+import worker, { dispatchNotifications } from "../worker.js";
 import { fixture, state, owner, review } from "./support.mjs";
 const tick = (ms) => new Promise((r) => setTimeout(r, ms));
 test("actual interface and server: heritage entry, connected membership, task stages, classified files and expense form", async () => {
@@ -590,21 +590,43 @@ test("actual interface and server: heritage entry, connected membership, task st
       "reopening also resets the retained scroll",
     );
     assert.equal(d.activeElement, d.querySelector("#modalTitle"));
-    assert.equal(d.querySelector("#newManagerFields").hidden, true);
-    val("name", "لجنة المدير الجديد");
-    await click("#newManagerToggle");
-    assert.equal(d.querySelector("[name=manager_id]").disabled, true);
-    assert.equal(d.querySelector("[name=manager_name]").required, true);
-    assert.equal(d.querySelector("[name=manager_email]").required, false);
-    val("manager_name", "مدير اختبار الواجهة");
-    val("manager_phone", "0500000031");
-    await click("#newManagerToggle");
-    assert.equal(d.querySelector("[name=manager_id]").disabled, false);
-    assert.equal(d.querySelector("[name=manager_name]").disabled, true);
-    await click("#newManagerToggle");
+    const managerPicker = d.querySelector('[data-person-picker="manager_id"]');
     assert.equal(
-      d.querySelector("[name=manager_name]").value,
+      managerPicker.querySelector(".person-picker-fields").hidden,
+      true,
+    );
+    val("name", "لجنة المدير الجديد");
+    await click(
+      '[data-person-picker="manager_id"] [data-action="inline-person-toggle"]',
+    );
+    assert.equal(
+      managerPicker.querySelector("[data-person-name]").required,
+      true,
+    );
+    assert.equal(
+      managerPicker.querySelector("[data-person-email]").required,
+      false,
+    );
+    managerPicker.querySelector("[data-person-name]").value =
+      "مدير اختبار الواجهة";
+    managerPicker.querySelector("[data-person-phone]").value = "0500000031";
+    await click(
+      '[data-person-picker="manager_id"] [data-action="inline-person-toggle"]',
+    );
+    assert.equal(d.querySelector("[name=manager_id]").disabled, false);
+    assert.equal(
+      managerPicker.querySelector("[data-person-name]").disabled,
+      true,
+    );
+    await click(
+      '[data-person-picker="manager_id"] [data-action="inline-person-toggle"]',
+    );
+    assert.equal(
+      managerPicker.querySelector("[data-person-name]").value,
       "مدير اختبار الواجهة",
+    );
+    await click(
+      '[data-person-picker="manager_id"] [data-action="inline-person-add"]',
     );
     let managerMessage = "";
     Object.assign(a.env, {
@@ -622,6 +644,7 @@ test("actual interface and server: heritage entry, connected membership, task st
       },
     });
     await submit();
+    await dispatchNotifications(a.env);
     assert.match(managerMessage, /لجنة المدير الجديد/);
     const newCommittee = (await state(a)).committees.find(
       (c) => c.name === "لجنة المدير الجديد",
