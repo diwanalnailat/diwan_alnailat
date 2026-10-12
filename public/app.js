@@ -1820,6 +1820,13 @@
       ? "min(1050px, calc(100vw - 32px))"
       : "min(760px, calc(100vw - 32px))";
     if (!d.open) d.showModal();
+    // The shared dialog must not retain another form's scroll or focus.
+    const heading = $("#modalTitle");
+    heading.tabIndex = -1;
+    d.setAttribute("aria-labelledby", heading.id);
+    ($("#modalBody [autofocus]") || heading).focus({ preventScroll: true });
+    d.scrollTop = 0;
+    $("#modalBody").scrollTop = 0;
     const form = $("#modalBody form");
     if (form && onSubmit) {
       form.dataset.requestKey = crypto.randomUUID();
