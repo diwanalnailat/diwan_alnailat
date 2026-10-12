@@ -24,34 +24,47 @@ test("actual interface and server: heritage entry, connected membership, task st
     this.open = false;
     this.dispatchEvent(new w.Event("close"));
   };
+  let pendingRequests = 0;
+  let locationDelay;
   w.fetch = async (path, opts = {}) => {
-    const headers = {
-      ...opts.headers,
-      origin: "https://diwan.test",
-      "oai-authenticated-user-id": owner.id,
-      "oai-authenticated-user-email": owner.email,
-    };
-    let body = opts.body;
-    if (body instanceof w.FormData) {
-      const fd = new FormData();
-      for (const [k, v] of body.entries()) {
-        if (v instanceof w.File) {
-          if (!v.size) continue;
-          const bytes = await new Promise((resolve, reject) => {
-            const r = new w.FileReader();
-            r.onload = () => resolve(r.result);
-            r.onerror = reject;
-            r.readAsArrayBuffer(v);
-          });
-          fd.append(k, new File([bytes], v.name, { type: v.type }));
-        } else fd.append(k, v);
+    pendingRequests++;
+    try {
+      if (String(path).endsWith("/location/resolve") && locationDelay)
+        await locationDelay;
+      const headers = {
+        ...opts.headers,
+        origin: "https://diwan.test",
+        "oai-authenticated-user-id": owner.id,
+        "oai-authenticated-user-email": owner.email,
+      };
+      let body = opts.body;
+      if (body instanceof w.FormData) {
+        const fd = new FormData();
+        for (const [k, v] of body.entries()) {
+          if (v instanceof w.File) {
+            if (!v.size) continue;
+            const bytes = await new Promise((resolve, reject) => {
+              const r = new w.FileReader();
+              r.onload = () => resolve(r.result);
+              r.onerror = reject;
+              r.readAsArrayBuffer(v);
+            });
+            fd.append(k, new File([bytes], v.name, { type: v.type }));
+          } else fd.append(k, v);
+        }
+        body = fd;
       }
-      body = fd;
+      return await worker.fetch(
+        new Request(new URL(path, w.location.origin), {
+          ...opts,
+          headers,
+          body,
+        }),
+        a.env,
+      );
+    } finally {
+      pendingRequests--;
     }
-    return worker.fetch(
-      new Request(new URL(path, w.location.origin), { ...opts, headers, body }),
-      a.env,
-    );
   };
   w.addEventListener("error", (e) => errors.push(e.error));
   w.eval(fs.readFileSync("public/vendor/qrcode.js", "utf8"));
@@ -77,10 +90,13 @@ test("actual interface and server: heritage entry, connected membership, task st
         d.querySelector(".form-error:not([hidden])")?.textContent,
     );
   };
-  const click = (sel) => {
+  const click = async (sel) => {
       const e = d.querySelector(sel);
       assert.ok(e, "Missing " + sel);
       e.click();
+      await tick(0);
+      await wait(() => pendingRequests === 0);
+      await tick(0);
       return e;
     },
     val = (name, value, scope = "#modalBody") => {
@@ -111,7 +127,7 @@ test("actual interface and server: heritage entry, connected membership, task st
     );
     assert.equal(d.querySelectorAll(".nw-season").length, 5);
     assert.equal(d.querySelectorAll(".nw-season:not([hidden])").length, 1);
-    click('[data-nailat-edition="7"]');
+    await click('[data-nailat-edition="7"]');
     assert.equal(
       d.querySelector(".nw-season:not([hidden])").id,
       "nailat-season-7",
@@ -141,7 +157,7 @@ test("actual interface and server: heritage entry, connected membership, task st
       d.querySelectorAll(".modal-sanad,.sanad-fab,.side-assistant").length,
       0,
     );
-    click(".heritage-nav [data-page=overview]");
+    await click(".heritage-nav [data-page=overview]");
     await wait(() => !d.body.classList.contains("landing-mode"));
     assert.ok(d.querySelector(".command-hero"));
     await click('[data-page="heritage_results"]');
@@ -193,13 +209,13 @@ test("actual interface and server: heritage entry, connected membership, task st
     w.innerWidth = 390;
     w.dispatchEvent(new w.Event("resize"));
     assert.equal(d.querySelector("#sidebar").inert, true);
-    click(".mobile-menu");
+    await click(".mobile-menu");
     assert.equal(d.querySelector("#sidebar").inert, false);
     assert.equal(
       d.querySelector(".mobile-menu").getAttribute("aria-expanded"),
       "true",
     );
-    click(".menu-backdrop");
+    await click(".menu-backdrop");
     assert.equal(d.querySelector("#sidebar").inert, true);
     w.innerWidth = 1280;
     w.dispatchEvent(new w.Event("resize"));
@@ -208,30 +224,30 @@ test("actual interface and server: heritage entry, connected membership, task st
       d.querySelector(".command-hero h1").textContent,
       /[،.]/,
     );
-    click("[data-page=services]");
+    await click("[data-page=services]");
     assert.equal(d.querySelectorAll(".service-group").length, 4);
-    click("[data-action=service-filter][data-filter-value=field]");
+    await click("[data-action=service-filter][data-filter-value=field]");
     assert.equal(d.querySelectorAll(".service-group").length, 1);
-    click("[data-page=calendar]");
-    click("[data-action=schedule-filter][data-filter-value=all]");
+    await click("[data-page=calendar]");
+    await click("[data-action=schedule-filter][data-filter-value=all]");
     assert.equal(
       d.querySelector("[data-filter-value=all]").getAttribute("aria-pressed"),
       "true",
     );
-    click("[data-page=decisions]");
+    await click("[data-page=decisions]");
     assert.ok(d.querySelector(".filter-chips"));
-    click("[data-page=field]");
+    await click("[data-page=field]");
     assert.ok(d.querySelector("#projectFilter"));
-    click("[data-page=reports]");
+    await click("[data-page=reports]");
     assert.ok(d.querySelector("[data-action=workspace-export]"));
-    click("[data-page=profile]");
+    await click("[data-page=profile]");
     assert.match(d.querySelector("#main").textContent, /مستحقاتي الشخصية/);
-    click("[data-page=projects]");
-    click("[data-action=project-edit]");
+    await click("[data-page=projects]");
+    await click("[data-action=project-edit]");
     assert.equal(d.querySelector('[name="supervisor_id"]'), null);
     await submit();
-    click("[data-page=assets]");
-    click("[data-action=asset-new]");
+    await click("[data-page=assets]");
+    await click("[data-action=asset-new]");
     val("name", "كرفان ميداني");
     val("kind", "serialized").dispatchEvent(
       new w.Event("change", { bubbles: true }),
@@ -248,14 +264,14 @@ test("actual interface and server: heritage entry, connected membership, task st
     );
     assert.match(savedAsset.serial, /^NL-\d{8}$/);
     assert.equal(savedAsset.meta.site_location.lat, 24.7);
-    click("[data-action=asset-lookup]");
+    await click("[data-action=asset-lookup]");
     val("lookup_code", savedAsset.serial);
-    click("#modalBody [type=submit]");
+    await click("#modalBody [type=submit]");
     assert.match(d.querySelector("#modalBody").textContent, /كرفان ميداني/);
     assert.ok(
       d.querySelector('#modalBody a[href^="https://www.google.com/maps/dir/"]'),
     );
-    click("[data-action=asset-label]");
+    await click("[data-action=asset-label]");
     assert.ok(d.querySelector("[data-label-preview] svg"));
     assert.ok(
       d
@@ -263,9 +279,9 @@ test("actual interface and server: heritage entry, connected membership, task st
         .textContent.includes(savedAsset.serial),
     );
     assert.ok(d.querySelector("[data-label-pdf]"));
-    click("[data-action=close-modal]");
-    click("[data-page=committees]");
-    click("[data-action=committee-edit]");
+    await click("[data-action=close-modal]");
+    await click("[data-page=committees]");
+    await click("[data-action=committee-edit]");
     assert.equal(val("second_approver_id", "owner").tagName, "SELECT");
     assert.equal(d.querySelectorAll("[data-budget-line]").length, 1);
     await submit();
@@ -273,17 +289,17 @@ test("actual interface and server: heritage entry, connected membership, task st
       (await state(a)).committees[0].config.budgetLines[0].budget,
       1000000,
     );
-    click("[data-page=users]");
-    click("[data-action=user-new]");
+    await click("[data-page=users]");
+    await click("[data-action=user-new]");
     val("name", "عضو من الواجهة");
     val("status", "active");
     val("phone", "+966500123456");
-    click("[data-action=member-next]");
+    await click("[data-action=member-next]");
     await wait(() => d.querySelector("#memberForm").dataset.step === "1");
-    click("[data-action=member-link-add]");
+    await click("[data-action=member-link-add]");
     val("link_committee", a.cid);
     val("link_role", "member");
-    click("[data-action=member-next]");
+    await click("[data-action=member-next]");
     await wait(() => d.querySelector("#memberForm").dataset.step === "2");
     assert.ok(d.querySelector("#memberReview").textContent.includes("سجلاته"));
     await submit();
@@ -293,8 +309,8 @@ test("actual interface and server: heritage entry, connected membership, task st
     assert.ok(
       (await state(a)).committees[0].members.some((m) => m.id === member.id),
     );
-    click("[data-page=tasks]");
-    click("[data-action=task-new]");
+    await click("[data-page=tasks]");
+    await click("[data-action=task-new]");
     val("title", "تنظيم استقبال الضيوف");
     val("description", "تجهيز الاستقبال حسب العدد والمكان المحددين");
     val("outcome", "جاهزية نقطة الاستقبال");
@@ -306,14 +322,14 @@ test("actual interface and server: heritage entry, connected membership, task st
     await submit();
     await wait(() => d.querySelector("#detail").open);
     assert.ok(d.querySelector(".task-conversation"));
-    click("[data-action=task-transition][data-next=doing]");
+    await click("[data-action=task-transition][data-next=doing]");
     await submit();
     const task = (await state(a)).tasks.find(
       (t) => t.title === "تنظيم استقبال الضيوف",
     );
     assert.equal(task.status, "doing");
-    click("[data-page=expenses]");
-    click("[data-action=expense-new]");
+    await click("[data-page=expenses]");
+    await click("[data-action=expense-new]");
     assert.equal(d.querySelector("[name=budget_line_id]").tagName, "SELECT");
     assert.equal(d.querySelectorAll("[name=reviewer]").length, 0);
     assert.ok(d.querySelector("[name=invoiceFiles]"));
@@ -360,46 +376,47 @@ test("actual interface and server: heritage entry, connected membership, task st
     // The owner created this draft: self-approval is replaced by the configured delegate.
     // No delegate exists in this fixture, so submitting requires administrative configuration.
     assert.deepEqual(expense.meta.route, [a.manager.memberId, null]);
-    click("[data-page=advances]");
-    click("[data-action=advance-new]");
+    await click("[data-page=advances]");
+    await click("[data-action=advance-new]");
     assert.ok(d.querySelector("[name=handoverFiles]").required);
     assert.ok(d.querySelector("[name=purpose]"));
     assert.equal(d.querySelector("[name=committee_id]").tagName, "SELECT");
-    click("[data-action=close-modal]");
-    click("[data-page=assets]");
-    click("[data-action=asset-new]");
+    await click("[data-action=close-modal]");
+    await click("[data-page=assets]");
+    await click("[data-action=asset-new]");
     assert.ok(d.querySelector("[name=unit_value]"));
     val("ownership", "rented").dispatchEvent(
       new w.Event("change", { bubbles: true }),
     );
     assert.equal(d.querySelector("[data-rental-fields]").hidden, false);
-    click("[data-action=close-modal]");
-    click("[data-page=suppliers]");
-    click("[data-action=supplier-new]");
+    await click("[data-action=close-modal]");
+    await click("[data-page=suppliers]");
+    await click("[data-action=supplier-new]");
     assert.ok(d.querySelector("[name=iban]"));
     assert.ok(d.querySelector("[name=supplierFiles]"));
-    click("[data-action=close-modal]");
-    click("[data-page=media]");
-    click("[data-action=media-new]");
+    await click("[data-action=close-modal]");
+    await click("[data-page=media]");
+    await click("[data-action=media-new]");
     val("name", "ملف إعلامي من الواجهة");
-    click("[data-add-account]");
+    await click("[data-add-account]");
     d.querySelector("[data-key=handle]").value = "test";
     d.querySelector("[data-key=followers]").value = "4000";
-    click("[data-add-work]");
+    await click("[data-add-work]");
     d.querySelector("[data-key=title]").value = "تغطية الزيارة";
     await submit();
     await wait(() => d.querySelector("[data-action=media-detail]"));
-    click("[data-action=media-detail]");
+    await click("[data-action=media-detail]");
     assert.ok(
       d.querySelector("#modalBody").textContent.includes("تغطية الزيارة"),
     );
-    click("[data-action=close-modal]");
-    click("[data-page=suppliers]");
-    click("[data-action=supplier-new]");
-    let chosen;
+    await click("[data-action=close-modal]");
+    await click("[data-page=suppliers]");
+    await click("[data-action=supplier-new]");
+    let chosen, mapCenter;
     w.L = {
       map: () => ({
-        setView() {
+        setView(point) {
+          mapCenter = point;
           return this;
         },
         on(k, fn) {
@@ -432,15 +449,80 @@ test("actual interface and server: heritage entry, connected membership, task st
         },
       }),
     };
-    click("[data-geo-map]");
+    await click("[data-geo-map]");
+    await wait(() => d.querySelector(".map-picker"));
+    const mapLink = d.querySelector("#map-google-url");
+    assert.ok(mapLink);
+    mapLink.value = "https://maps.google.com/?q=25.1,47.2";
+    await click("[data-map-resolve]");
+    await wait(() => !d.querySelector("[data-map-save]").disabled);
+    await click("[data-map-save]");
+    assert.equal(d.querySelector("[name=geo_lat]").value, "25.100000");
+    assert.equal(d.querySelector("[name=geo_map_url]").value, mapLink.value);
+    await click("[data-geo-map]");
     await wait(() => d.querySelector(".map-picker"));
     chosen({ latlng: { lat: 24.8, lng: 46.9 } });
-    click("[data-map-save]");
+    await click("[data-map-save]");
     assert.equal(d.querySelector("[name=geo_lat]").value, "24.800000");
     assert.equal(d.querySelector("[name=geo_lng]").value, "46.900000");
+    assert.match(
+      d.querySelector("[name=geo_map_url]").value,
+      /24.800000,46.900000/,
+    );
     assert.equal(d.querySelector("[name=geo_lat]").type, "hidden");
-    click("[data-action=close-modal]");
-    click("[data-action=assistant]");
+    await click("[data-action=close-modal]");
+    await click("[data-page=projects]");
+    await click("[data-action=project-new]");
+    val("title", "مشروع اختبار رابط الموقع");
+    const projectLink = d.querySelector("#project-google-url");
+    assert.ok(projectLink, "Google Maps link is visible in the project form");
+    const pasteLink = (url) => {
+      projectLink.value = url;
+      projectLink.dispatchEvent(new w.Event("input", { bubbles: true }));
+    };
+    pasteLink("https://maps.google.com/?q=25.1,47.2");
+    await wait(() => d.querySelector("[name=geo_lat]").value === "25.100000");
+    await wait(() => !d.querySelector(".project-location-preview").hidden);
+    assert.equal(mapCenter.join(","), "25.1,47.2");
+    pasteLink("https://example.test/private");
+    await wait(() => projectLink.getAttribute("aria-invalid") === "true");
+    assert.equal(projectLink.validity.valid, false);
+    const projectForm = d.querySelector("#modalBody form");
+    projectForm.dispatchEvent(new w.SubmitEvent("submit", {
+      bubbles: true, cancelable: true,
+      submitter: projectForm.querySelector("[type=submit]"),
+    }));
+    await wait(() => !projectForm.querySelector(".form-error").hidden);
+    assert.equal(d.querySelector("#modal").open, true, "invalid links cannot silently save old coordinates");
+    await click("[data-geo-clear]");
+    assert.equal(projectLink.value, "");
+    assert.equal(projectLink.validity.valid, true);
+    assert.equal(d.querySelector("[name=geo_lat]").value, "");
+    let releaseLocation;
+    locationDelay = new Promise((resolve) => { releaseLocation = resolve; });
+    pasteLink("https://maps.google.com/?q=26,48");
+    await wait(() => pendingRequests > 0);
+    d.querySelector("[data-geo-clear]").click();
+    releaseLocation();
+    locationDelay = null;
+    await wait(() => pendingRequests === 0);
+    assert.equal(d.querySelector("[name=geo_lat]").value, "", "clearing ignores an older in-flight result");
+    pasteLink("https://www.google.com/maps/search/24.7136,+46.6753?entry=tts");
+    await submit(); // Save immediately, before debounce: resolution must finish first.
+    const mappedProject = (await state(a)).projects.find((p) => p.title === "مشروع اختبار رابط الموقع");
+    assert.equal(mappedProject.meta.site_location.lat, 24.7136);
+    assert.equal(mappedProject.meta.site_location.lng, 46.6753);
+    assert.equal(mappedProject.meta.site_location.map_url, projectLink.value);
+    await click(`[data-action=project-edit][data-id="${mappedProject.id}"]`);
+    assert.equal(d.querySelector("#project-google-url").value, mappedProject.meta.site_location.map_url);
+    await click("[data-geo-map]");
+    await wait(() => d.querySelector(".map-picker"));
+    chosen({ latlng: { lat: 24.8, lng: 46.9 } });
+    await click("[data-map-save]");
+    assert.match(d.querySelector("#project-google-url").value, /24.800000,46.900000/);
+    await submit();
+    assert.equal((await state(a)).projects.find((p) => p.id === mappedProject.id).meta.site_location.lat, 24.8);
+    await click("[data-action=assistant]");
     await wait(() => d.querySelector("#assistant").dataset.loading === "false");
     assert.ok(d.querySelector("#assistantBody").textContent.includes("سَنَد"));
     assert.equal(
@@ -448,18 +530,18 @@ test("actual interface and server: heritage entry, connected membership, task st
       6,
     );
     assert.ok(d.querySelector("#sanadChatForm [name=message]"));
-    click("[data-action=sanad-guide]");
+    await click("[data-action=sanad-guide]");
     assert.ok(d.querySelector("#guideForm"));
     assert.ok(
       d.querySelector("#guideForm").textContent.includes("القالب المعتمد"),
     );
-    click("[data-action=close-assistant]");
-    click("[data-page=settings]");
-    click("[data-action=settings-tab][data-tab=sanad]");
+    await click("[data-action=close-assistant]");
+    await click("[data-page=settings]");
+    await click("[data-action=settings-tab][data-tab=sanad]");
     assert.ok(d.querySelector("[name=sanad_context]"));
     assert.equal(d.querySelector("[name=sanad_retention]").value, "30");
-    click("[data-action=settings-tab][data-tab=connections]");
-    click("[data-action=readiness-check]");
+    await click("[data-action=settings-tab][data-tab=connections]");
+    await click("[data-action=readiness-check]");
     await wait(() =>
       d.querySelector("#readinessResult").textContent.includes("مسارات اللجان"),
     );
@@ -468,7 +550,7 @@ test("actual interface and server: heritage entry, connected membership, task st
         .querySelector("#readinessResult")
         .textContent.includes("الدخول المستقل بالجوال"),
     );
-    click("[data-action=maintenance-run]");
+    await click("[data-action=maintenance-run]");
     await wait(() =>
       d
         .querySelector("#readinessResult")

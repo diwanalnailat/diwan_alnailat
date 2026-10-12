@@ -53,6 +53,8 @@
 
 ## المالية
 
+<!-- Location API: POST /api/location/resolve accepts {url} and returns {lat,lng,map_url} for authenticated users, limited to 20 requests/minute. Only allowlisted HTTPS Google Maps URLs and bounded redirects are accepted. The project form resolves pasted links automatically, previews the marker and waits for resolution before saving site_location. -->
+
 | المسار POST | العقد |
 |---|---|
 | /expenses/save | title، project_id، committee_id، budget_line_id، amount، tax، date، funding_source، files؛ task_id اختياري، advance_id عند الدفع من عهدة؛ status=draft أو pending |

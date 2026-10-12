@@ -1878,6 +1878,7 @@
   }
   function projectForm(id) {
     const p = S.projects.find((x) => x.id === id) || {};
+    let resolveLocation;
     modal(
       p.id ? "تعديل المشروع" : "مشروع جديد",
       `<form class="form-grid">${field("اسم مشروع المشاركة *", input("title", p.title || "", "text", 'required maxlength="200" placeholder="مشاركة مهرجان الملك عبدالعزيز للإبل 2026–2027"'), true)}${field("الوصف والهدف", textarea("description", p.description), true)}${field("الموسم / النسخة — اختياري", input("season", p.season || "", "text", 'placeholder="مثال: موسم 2027"'))}${field(
@@ -1894,7 +1895,8 @@
         ),
       )}${field("تاريخ البداية", input("start", p.start || "", "date"))}${field("تاريخ النهاية", input("due", p.due || "", "date"))}${p.budget !== undefined || !p.id ? field("الميزانية التقديرية — ر.س", input("budget", (p.budget || 0) / 100, "number", 'min="0" step="0.01"')) : '<p class="form-note full">الميزانية محجوبة حسب صلاحياتك.</p>'}${locationFields(p.meta?.site_location, "موقع الفعالية — اختياري")}${actions(p.id ? "حفظ التعديلات" : "إنشاء المشروع")}</form>`,
       async (fd, f) => {
-        const b = formData(fd);
+        await resolveLocation();
+        const b = formData(new FormData(f));
         b.sections = p.meta?.sections || [];
         b.site_location = locationValue(b);
         if (p.id) {
@@ -1910,6 +1912,7 @@
         );
       },
     );
+    resolveLocation = projectLocationEditor($("#modalBody form"));
   }
   function cloneProject(id) {
     const p = S.projects.find((x) => x.id === id);
@@ -3045,10 +3048,10 @@
   }
   function locationFields(g = {}, title = "الموقع — اختياري") {
     g ||= {};
-    return `<fieldset class="location-editor full" data-location-editor><legend>${esc(title)}</legend><div class="location-map-choice"><div><strong>${esc(g.label || "أين يقع المكان؟")}</strong><p data-geo-status>${g.lat != null ? "تم تحديد نقطة على الخريطة" : "افتح الخريطة واضغط على المكان المطلوب"}</p></div><button type="button" class="button button-dark" data-geo-map>${icon("search")} تحديد على الخريطة</button></div><div class="form-grid">${field("اسم المكان / الخيمة / البوابة", input("geo_label", g.label || "", "text", 'maxlength="200"'))}${field("إرشادات الوصول", input("geo_notes", g.notes || "", "text", 'maxlength="1000"'))}</div><input type="hidden" name="geo_lat" value="${esc(g.lat ?? "")}"><input type="hidden" name="geo_lng" value="${esc(g.lng ?? "")}"><button type="button" class="button compact button-ghost" data-geo-clear>مسح الموقع</button></fieldset>`;
+    return `<fieldset class="location-editor full" data-location-editor><legend>${esc(title)}</legend><div class="location-map-choice"><div><strong>${esc(g.label || "أين يقع المكان؟")}</strong><p data-geo-status>${g.lat != null ? "تم تحديد نقطة على الخريطة" : "ألصق رابط خرائط Google أو اختر النقطة على الخريطة"}</p></div><button type="button" class="button button-dark" data-geo-map>${icon("search")} رابط Google أو الخريطة</button></div><div class="form-grid">${field("اسم المكان / الخيمة / البوابة", input("geo_label", g.label || "", "text", 'maxlength="200"'))}${field("إرشادات الوصول", input("geo_notes", g.notes || "", "text", 'maxlength="1000"'))}</div><input type="hidden" name="geo_lat" value="${esc(g.lat ?? "")}"><input type="hidden" name="geo_lng" value="${esc(g.lng ?? "")}"><input type="hidden" name="geo_map_url" value="${esc(g.map_url || "")}"><button type="button" class="button compact button-ghost" data-geo-clear>مسح الموقع</button></fieldset>`;
   }
   let mapLibrary;
-  async function openMapPicker(box) {
+  async function loadMapLibrary() {
     if (!window.L) {
       mapLibrary ||= new Promise((resolve, reject) => {
         const css = document.createElement("link");
@@ -3066,13 +3069,187 @@
       });
       await mapLibrary;
     }
+  }
+  function projectLocationEditor(form) {
+    const box = form.querySelector("[data-location-editor]"),
+      status = box.querySelector("[data-geo-status]");
+    status.id = "project-location-status";
+    status.setAttribute("aria-live", "polite");
+    box.querySelector("[data-geo-map]").innerHTML =
+      `${icon("search")} تحديد على الخريطة`;
+    const row = document.createElement("div");
+    row.className = "project-map-link";
+    row.innerHTML =
+      '<label for="project-google-url">رابط قوقل ماب</label><div class="map-link-row"><input id="project-google-url" type="url" dir="ltr" inputmode="url" maxlength="4096" placeholder="https://maps.app.goo.gl/…" autocomplete="off" aria-describedby="project-location-help project-location-status"><button type="button" class="button" data-project-resolve>تحديد من الرابط</button></div><small id="project-location-help">ألصق رابط المشاركة؛ يظهر الموقع تلقائيًا ويحفظ عند حفظ المشروع.</small><div class="project-location-preview" aria-label="معاينة موقع الفعالية" hidden></div>';
+    box.querySelector(".location-map-choice").after(row);
+    const link = row.querySelector("input"),
+      preview = row.querySelector(".project-location-preview"),
+      value = (key) => box.querySelector(`[name=geo_${key}]`);
+    link.value = value("map_url").value;
+    let revision = 0,
+      timer,
+      pending,
+      map,
+      marker,
+      closed = false;
+    const removePreview = () => {
+      map?.remove();
+      map = marker = null;
+      preview.hidden = true;
+    };
+    const showPreview = async (current) => {
+      try {
+        await loadMapLibrary();
+        if (closed || !box.isConnected || current !== revision) return;
+        const point = [Number(value("lat").value), Number(value("lng").value)];
+        preview.hidden = false;
+        if (!map) {
+          map = L.map(preview, { scrollWheelZoom: false });
+          L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+            maxZoom: 19,
+            attribution:
+              '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a>',
+          })
+            .addTo(map)
+            .on("tileerror", () => {
+              status.textContent =
+                "تم تحديد الإحداثيات؛ تعذر تحميل بعض أجزاء الخريطة. يمكنك حفظ المشروع أو إعادة المحاولة.";
+            });
+          marker = L.marker(point).addTo(map);
+        } else marker.setLatLng(point);
+        map.setView(point, 16);
+        map.invalidateSize();
+      } catch {
+        if (!closed && current === revision)
+          status.textContent =
+            "تم تحديد الإحداثيات؛ تعذرت معاينة الخريطة. يمكنك حفظ المشروع أو فتح الخريطة مجددًا.";
+      }
+    };
+    const sync = () => {
+      revision++;
+      clearTimeout(timer);
+      pending = null;
+      link.value = value("map_url").value;
+      link.setCustomValidity("");
+      link.removeAttribute("aria-invalid");
+      box.removeAttribute("aria-busy");
+      removePreview();
+      if (value("lat").value !== "") void showPreview(revision);
+    };
+    box.addEventListener("locationchange", sync);
+    const resolve = () => {
+      clearTimeout(timer);
+      const url = link.value.trim();
+      if (url === value("map_url").value) {
+        if (!url)
+          status.textContent =
+            "ألصق رابط خرائط Google أو اختر النقطة على الخريطة.";
+        else {
+          status.textContent = `تم تحديد الموقع: ${value("lat").value}, ${value("lng").value} — سيحفظ مع المشروع.`;
+          if (!map) void showPreview(revision);
+        }
+        return Promise.resolve();
+      }
+      if (pending?.url === url) return pending.promise;
+      const current = ++revision;
+      const promise = (async () => {
+        if (!url) {
+          ["lat", "lng", "map_url"].forEach((key) => {
+            value(key).value = "";
+          });
+          sync();
+          status.textContent =
+            "ألصق رابط خرائط Google أو اختر النقطة على الخريطة.";
+          return;
+        }
+        box.setAttribute("aria-busy", "true");
+        status.textContent = "جارٍ تحديد الموقع من الرابط…";
+        try {
+          const result = await api("location/resolve", { url });
+          if (closed || !box.isConnected || current !== revision) return;
+          value("lat").value = result.lat.toFixed(6);
+          value("lng").value = result.lng.toFixed(6);
+          value("map_url").value = result.map_url;
+          link.value = result.map_url;
+          link.setCustomValidity("");
+          link.removeAttribute("aria-invalid");
+          status.textContent = `تم تحديد الموقع: ${value("lat").value}, ${value("lng").value} — سيحفظ مع المشروع.`;
+          void showPreview(current);
+        } catch (error) {
+          if (closed || current !== revision) return;
+          status.textContent = error.message;
+          link.setCustomValidity(error.message);
+          link.setAttribute("aria-invalid", "true");
+          throw error;
+        } finally {
+          if (current === revision) {
+            box.removeAttribute("aria-busy");
+            pending = null;
+          }
+        }
+      })();
+      pending = { url, promise };
+      return promise;
+    };
+    link.addEventListener("input", () => {
+      revision++;
+      clearTimeout(timer);
+      pending = null;
+      link.setCustomValidity("");
+      link.removeAttribute("aria-invalid");
+      box.removeAttribute("aria-busy");
+      removePreview();
+      status.textContent = "جارٍ قراءة رابط الموقع…";
+      timer = setTimeout(() => {
+        void resolve().catch(() => {});
+      }, 400);
+    });
+    const resolveNow = () => {
+      void resolve().catch(() => {});
+    };
+    row.querySelector("button").onclick = resolveNow;
+    link.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        resolveNow();
+      }
+    });
+    form.closest("dialog").addEventListener(
+      "close",
+      () => {
+        closed = true;
+        revision++;
+        clearTimeout(timer);
+        removePreview();
+      },
+      { once: true },
+    );
+    if (value("lat").value !== "") void showPreview(revision);
+    return async () => {
+      await resolve();
+      if (closed || link.value.trim() !== value("map_url").value) {
+        link.focus();
+        throw Error("انتظر تحديد الموقع من الرابط قبل حفظ المشروع.");
+      }
+    };
+  }
+  async function openMapPicker(box, readOnly = false) {
+    await loadMapLibrary();
     const dialog = document.createElement("dialog");
     dialog.className = "map-picker";
-    dialog.innerHTML = `<header><div><span class="eyebrow">ديوان النائلات</span><h2>حدد الموقع على الخريطة</h2></div><button type="button" class="icon-btn" data-map-close aria-label="إغلاق">${icon("close")}</button></header><p>اضغط على المكان أو اسحب العلامة. يمكنك تحريك الخريطة وتكبيرها.</p><div class="map-canvas" aria-label="خريطة اختيار الموقع"></div><output aria-live="polite"></output><footer><button type="button" class="button" data-map-current>موقعي الحالي</button><button type="button" class="button" data-map-center>اختيار مركز الخريطة</button><button type="button" class="button button-dark" data-map-save disabled>اعتماد الموقع</button></footer>`;
+    dialog.innerHTML = `<header><div><span class="eyebrow">ديوان النائلات</span><h2 id="map-picker-title">${readOnly ? "الموقع على الخريطة" : "حدد الموقع على الخريطة"}</h2></div><button type="button" class="icon-btn" data-map-close aria-label="إغلاق">${icon("close")}</button></header>${readOnly ? "" : '<div class="map-link-field"><label for="map-google-url">رابط خرائط Google</label><div class="map-link-row"><input id="map-google-url" type="url" dir="ltr" inputmode="url" maxlength="4096" placeholder="https://maps.app.goo.gl/…" autocomplete="off" aria-describedby="map-link-help map-picker-status"><button type="button" class="button" data-map-resolve>تحديد من الرابط</button></div><small id="map-link-help">ألصق رابط المشاركة لتحديد المكان تلقائيًا، أو اضغط على الخريطة واسحب العلامة.</small></div>'}<div class="map-canvas" aria-label="خريطة الموقع"></div><output id="map-picker-status" aria-live="polite"></output><footer ${readOnly ? "hidden" : ""}><button type="button" class="button" data-map-current>موقعي الحالي</button><button type="button" class="button" data-map-center>اختيار مركز الخريطة</button><button type="button" class="button button-dark" data-map-save disabled>اعتماد الموقع</button></footer>`;
+    dialog.setAttribute("aria-labelledby", "map-picker-title");
     document.body.append(dialog);
     dialog.showModal();
-    const lat = box.querySelector("[name=geo_lat]").value,
-      lng = box.querySelector("[name=geo_lng]").value;
+    const value = (key) =>
+      box.querySelector(`[name=geo_${key}]`)?.value ?? box.dataset[key] ?? "";
+    const lat = value("lat"),
+      lng = value("lng");
+    let selectedUrl = value("map_url"),
+      revision = 0,
+      linkTimer;
+    const linkInput = dialog.querySelector("#map-google-url");
+    if (linkInput) linkInput.value = selectedUrl;
     let point = lat !== "" && lng !== "" ? [Number(lat), Number(lng)] : null,
       marker;
     const map = L.map(dialog.querySelector(".map-canvas")).setView(
@@ -3092,24 +3269,72 @@
           (output.textContent =
             "تعذر تحميل بعض أجزاء الخريطة. تحقق من اتصالك."),
       );
-    const choose = (ll) => {
+    const choose = (ll, sourceUrl = "") => {
+      revision++;
+      clearTimeout(linkTimer);
       point = [
         Math.max(-90, Math.min(90, ll.lat)),
         ((((ll.lng + 180) % 360) + 360) % 360) - 180,
       ];
       if (!marker) {
-        marker = L.marker(point, { draggable: true }).addTo(map);
+        marker = L.marker(point, { draggable: !readOnly }).addTo(map);
         marker.on("dragend", () => choose(marker.getLatLng()));
       } else marker.setLatLng(point);
+      selectedUrl =
+        sourceUrl ||
+        `https://www.google.com/maps/search/?api=1&query=${point[0].toFixed(6)},${point[1].toFixed(6)}`;
+      if (linkInput) {
+        linkInput.value = selectedUrl;
+        linkInput.removeAttribute("aria-invalid");
+      }
       dialog.querySelector("[data-map-save]").disabled = false;
-      output.textContent =
-        "تم اختيار الموقع؛ اضغط اعتماد الموقع لحفظه في النموذج.";
+      output.textContent = readOnly
+        ? `${point[0].toFixed(6)}, ${point[1].toFixed(6)}`
+        : "تم اختيار الموقع؛ اضغط اعتماد الموقع لحفظه في النموذج.";
     };
-    map.on("click", (e) => choose(e.latlng));
-    if (point) choose({ lat: point[0], lng: point[1] });
+    if (!readOnly) map.on("click", (e) => choose(e.latlng));
+    if (point) choose({ lat: point[0], lng: point[1] }, selectedUrl);
+    const resolveLink = async () => {
+      clearTimeout(linkTimer);
+      const url = linkInput.value.trim(),
+        current = ++revision;
+      dialog.querySelector("[data-map-save]").disabled = true;
+      if (!url) {
+        output.textContent = "ألصق رابط خرائط Google أو اختر نقطة على الخريطة.";
+        return;
+      }
+      output.textContent = "جارٍ تحديد الموقع من الرابط…";
+      try {
+        const result = await api("location/resolve", { url });
+        if (!dialog.isConnected || current !== revision) return;
+        choose(result, result.map_url);
+        map.setView(point, 17);
+      } catch (error) {
+        if (!dialog.isConnected || current !== revision) return;
+        output.textContent = error.message;
+        linkInput.setAttribute("aria-invalid", "true");
+      }
+    };
+    if (linkInput) {
+      linkInput.addEventListener("input", () => {
+        revision++;
+        clearTimeout(linkTimer);
+        dialog.querySelector("[data-map-save]").disabled = true;
+        linkTimer = setTimeout(resolveLink, 650);
+      });
+      linkInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          void resolveLink();
+        }
+      });
+      dialog.querySelector("[data-map-resolve]").onclick = resolveLink;
+    }
     dialog.querySelector("[data-map-center]").onclick = () =>
       choose(map.getCenter());
     dialog.querySelector("[data-map-current]").onclick = () => {
+      const current = ++revision;
+      clearTimeout(linkTimer);
       if (!navigator.geolocation) {
         output.textContent = "خدمة الموقع غير متاحة؛ اختر المكان على الخريطة.";
         return;
@@ -3117,7 +3342,7 @@
       output.textContent = "بانتظار إذن الموقع…";
       navigator.geolocation.getCurrentPosition(
         (pos) => {
-          if (!dialog.isConnected) return;
+          if (!dialog.isConnected || current !== revision) return;
           choose({ lat: pos.coords.latitude, lng: pos.coords.longitude });
           map.setView(point, 17);
         },
@@ -3130,17 +3355,21 @@
       );
     };
     dialog.querySelector("[data-map-save]").onclick = () => {
-      if (!point) return;
+      if (readOnly || !point) return;
       box.querySelector("[name=geo_lat]").value = point[0].toFixed(6);
       box.querySelector("[name=geo_lng]").value = point[1].toFixed(6);
+      box.querySelector("[name=geo_map_url]").value = selectedUrl;
       box.querySelector("[data-geo-status]").textContent =
         "تم تحديد الموقع على الخريطة";
+      box.dispatchEvent(new Event("locationchange"));
       dialog.close();
     };
     dialog.querySelector("[data-map-close]").onclick = () => dialog.close();
     dialog.addEventListener(
       "close",
       () => {
+        revision++;
+        clearTimeout(linkTimer);
         map.remove();
         dialog.remove();
       },
@@ -3149,6 +3378,9 @@
     setTimeout(() => map.invalidateSize(), 50);
   }
   document.addEventListener("click", (e) => {
+    const view = e.target.closest("[data-geo-view]");
+    if (view)
+      openMapPicker(view, true).catch((err) => toast(err.message, true));
     const b = e.target.closest("[data-geo-map]");
     if (b)
       openMapPicker(b.closest("[data-location-editor]")).catch((err) =>
@@ -3161,6 +3393,7 @@
       notes: v.geo_notes || "",
       lat: v.geo_lat || "",
       lng: v.geo_lng || "",
+      map_url: v.geo_map_url || "",
     };
   }
   function locationView(g, title = "الموقع") {
@@ -3170,7 +3403,14 @@
       typeof g.lng === "number" &&
       Number.isFinite(g.lat) &&
       Number.isFinite(g.lng);
-    return `<div class="record-location"><div><strong>${esc(title)}${g.label ? " · " + esc(g.label) : ""}</strong>${g.notes ? `<p>${esc(g.notes)}</p>` : ""}${point ? `<small dir="ltr">${g.lat.toFixed(6)}, ${g.lng.toFixed(6)}</small>` : ""}</div>${point ? `<a class="button compact button-ghost" target="_blank" rel="noopener noreferrer" href="https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(g.lat + "," + g.lng)}">فتح الاتجاهات</a>` : ""}</div>`;
+    const fallback = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(g.lat + "," + g.lng)}`;
+    const href =
+      /^https:\/\/(?:(?:www\.)?google\.(?:com(?:\.sa)?|co\.uk|ae)\/maps[/?]|maps\.google\.com(?:\.sa)?\/|maps\.app\.goo\.gl\/|goo\.gl\/maps\/)/.test(
+        g.map_url || "",
+      )
+        ? g.map_url
+        : fallback;
+    return `<div class="record-location"><div><strong>${esc(title)}${g.label ? " · " + esc(g.label) : ""}</strong>${g.notes ? `<p>${esc(g.notes)}</p>` : ""}${point ? `<small dir="ltr">${g.lat.toFixed(6)}, ${g.lng.toFixed(6)}</small>` : ""}</div>${point ? `<div class="location-view-actions"><button type="button" class="button compact button-ghost" data-geo-view data-lat="${g.lat}" data-lng="${g.lng}" data-map_url="${esc(href)}">عرض الخريطة</button><a class="button compact button-ghost" target="_blank" rel="noopener noreferrer" href="${esc(href)}">رابط Google Maps</a><a class="text-link" target="_blank" rel="noopener noreferrer" href="https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(g.lat + "," + g.lng)}">الاتجاهات</a></div>` : ""}</div>`;
   }
   document.addEventListener("click", (e) => {
     const b = e.target.closest("[data-geo-current],[data-geo-clear]");
@@ -3182,7 +3422,8 @@
     };
     if (b.hasAttribute("data-geo-clear")) {
       box.dataset.request = String(Number(box.dataset.request || 0) + 1);
-      ["label", "notes", "lat", "lng"].forEach((k) => val(k, ""));
+      ["label", "notes", "lat", "lng", "map_url"].forEach((k) => val(k, ""));
+      box.dispatchEvent(new Event("locationchange"));
       out.textContent = "تم مسح الموقع؛ احفظ السجل لتأكيد التعديل.";
       return;
     }
@@ -3201,6 +3442,7 @@
         if (!box.isConnected || box.dataset.request !== request) return;
         val("lat", p.coords.latitude.toFixed(6));
         val("lng", p.coords.longitude.toFixed(6));
+        val("map_url", "");
         out.textContent = `تم تحديد الموقع بدقة تقريبية ${Math.round(p.coords.accuracy)} متر. راجعه ثم احفظ السجل.`;
       },
       () => {

@@ -1,3 +1,4 @@
+import { resolveGoogleMaps } from "./lib/google-maps.js";
 import { validateLocation } from "./lib/location.js";
 import {
   joinAccess,
@@ -906,6 +907,11 @@ async function handle(req, env) {
   if (p === "/api/registration/request")
     fail("ابدأ بتوثيق الجوال عبر واتساب لإرسال طلب الانضمام", 400);
   const c = await context(req, env);
+  if (p === "/api/location/resolve" && req.method === "POST") {
+    await limit(db, "maps:resolve:" + c.u.id, 20, 60);
+    const body = await jsonBody(req, 8192);
+    return json(await resolveGoogleMaps(body.url, env.MAPS_FETCH || fetch));
+  }
   if (p === "/api/heritage-results/manage" && req.method === "GET") {
     c.need("settings", "manage");
     return json(await heritageResults(db));

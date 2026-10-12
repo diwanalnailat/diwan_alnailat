@@ -5001,6 +5001,28 @@ body {
   padding: 0 8px;
   font-size: 16px;
 }
+.project-map-link {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 20px;
+  min-width: 0;
+}
+.project-map-link > label {
+  font-weight: 600;
+}
+.project-map-link small {
+  line-height: 1.8;
+}
+.project-location-preview {
+  height: 240px;
+  min-width: 0;
+  border-radius: 12px;
+  direction: ltr;
+  z-index: 0;
+}
+.project-location-preview[hidden] {
+  display: none;
+}
 .location-editor .muted {
   margin: 0 0 16px;
   font-size: 14px;
@@ -5165,6 +5187,41 @@ body {
 }
 .map-picker footer {
   flex-wrap: wrap;
+}
+.map-picker footer[hidden] {
+  display: none;
+}
+.map-link-field {
+  margin: 18px 0;
+}
+.map-link-field label {
+  display: block;
+  margin-bottom: 8px;
+}
+.map-link-row,
+.location-view-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.map-link-row input {
+  flex: 1 1 240px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line, #d8d6c9);
+  border-radius: 8px;
+  background: var(--surface, #fff);
+  color: inherit;
+  font: inherit;
+}
+.map-link-row button {
+  min-height: 44px;
+}
+.map-link-field small {
+  display: block;
+  margin-top: 8px;
+  color: var(--muted);
 }
 .leaflet-container {
   font-family: inherit;
