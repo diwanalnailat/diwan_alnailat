@@ -1,5 +1,16 @@
 import { resolveGoogleMaps } from "./lib/google-maps.js";
 import {
+  permissionCatalog,
+  previewPermissions,
+} from "./lib/permissions-center.js";
+import { canDocument } from "./lib/document-access.js";
+import {
+  PERMISSION_ALIASES,
+  isRoleBundle,
+  grantMatches,
+  automaticRoleGrants,
+} from "./lib/permission-policy.js";
+import {
   normalizeMembershipTitle,
   membershipTitles,
   membershipTitleStatements,
@@ -68,6 +79,7 @@ import {
   taskStatuses,
   DEFAULT_SETTINGS,
   RESOURCES,
+  ACTIONS,
   RESOURCE_ACTIONS,
   permitted,
   maySeeModule,
@@ -81,17 +93,7 @@ import {
   fieldVisible,
 } from "./lib/domain.js";
 export { money, permitted } from "./lib/domain.js";
-const ACTION_NAMES = {
-  view: "مشاهدة",
-  create: "إضافة",
-  edit: "تعديل",
-  assign: "إسناد",
-  approve: "اعتماد",
-  pay: "تسجيل سداد",
-  export: "تصدير",
-  archive: "أرشفة",
-  manage: "إدارة",
-};
+const ACTION_NAMES = ACTIONS;
 const uid = () => crypto.randomUUID(),
   now = () => new Date().toISOString();
 const policy = {
@@ -413,10 +415,17 @@ async function fileBindings(db, c, ids, resource, entityId) {
 async function assertFileRead(db, c, f) {
   if (f.entity_type === "draft") {
     if (f.created_by !== c.u.id) fail("المرفق غير متاح", 403);
+    const meta = parse(f.meta);
+    c.need(meta.pending_resource || "documents", "download", {
+      created_by: f.created_by,
+      project_id: meta.project_id,
+      committee_id: meta.committee_id,
+    });
     return;
   }
   const r = await record(db, f.entity_type, f.entity_id);
   c.need(f.entity_type, "view", r);
+  c.need(f.entity_type, "download", r);
   if (f.entity_type === "suppliers" && !canReadSupplierFile(c, r, f.id))
     fail("المرفق غير متاح ضمن وصولك", 403);
   if (
@@ -668,6 +677,8 @@ async function state(db, c, filter = "", env = {}) {
   );
   if (projects.length && !modules.includes("projects"))
     modules.push("projects");
+  if (joinAccess(c) && !modules.includes("join_requests"))
+    modules.push("join_requests");
   const joinRows = await visibleJoinRequests(db, c);
   const ownNotifications = (
     await all(
@@ -698,7 +709,8 @@ async function state(db, c, filter = "", env = {}) {
   return {
     user: normalize({ ...c.u, email: c.u.email }),
     join_requests_access: joinAccess(c),
-    heritage_results_access: c.can("settings", "manage"),
+    heritage_results_access: c.can("heritage_results", "view"),
+    permission_aliases: PERMISSION_ALIASES,
     modules,
     effective_grants: effectiveGrants(c.u, c.bundles),
     projects,
@@ -721,8 +733,11 @@ async function state(db, c, filter = "", env = {}) {
       .filter((r) => c.can("suppliers", "view", r))
       .map((r) => {
         const n = normalize(r);
-        if (n.meta.media_profile)
-          n.meta.media_profile = mediaForReader(c, n.meta.media_profile);
+        if (n.meta.media_profile) {
+          if (c.can("media", "view", r))
+            n.meta.media_profile = mediaForReader(c, n.meta.media_profile);
+          else delete n.meta.media_profile;
+        }
         if (!c.can("suppliers", "edit", r)) {
           delete n.meta.iban;
           delete n.meta.bank_name;
@@ -745,7 +760,9 @@ async function state(db, c, filter = "", env = {}) {
         })
       : [],
     bundles: c.can("users", "manage")
-      ? c.bundles.map((b) => ({ ...b, grants: parse(b.grants, []) }))
+      ? c.bundles
+          .filter((b) => !isRoleBundle(b.id))
+          .map((b) => ({ ...b, grants: parse(b.grants, []) }))
       : [],
     settings: {
       ...c.settings,
@@ -758,11 +775,13 @@ async function state(db, c, filter = "", env = {}) {
     notifications: ownNotifications,
     audit: audits,
     guides: (await all(db, "SELECT * FROM nl_guides ORDER BY created DESC"))
-      .filter(
-        (g) =>
-          c.can("documents", "view", g) ||
-          (g.created_by === c.u.id &&
-            c.can("assistant", "view", { project_id: g.project_id })),
+      .filter((g) =>
+        canDocument(
+          c,
+          "view",
+          g,
+          taskRows.find((t) => t.id === g.task_id),
+        ),
       )
       .map((g) => ({ ...g, content: parse(g.content) })),
     membershipTitles: c.can("users", "manage")
@@ -860,12 +879,32 @@ function ensureGrantAccess(c, g) {
         (d.resource === "*" ||
           g.resource === "*" ||
           d.resource === g.resource ||
-          d.resource.startsWith(g.resource + ".")) &&
-        (d.action === "*" || g.action === "*" || d.action === g.action) &&
+          d.resource.startsWith(g.resource + ".") ||
+          grantMatches(g, d.resource, d.action)) &&
+        (d.action === "*" ||
+          g.action === "*" ||
+          d.action === g.action ||
+          grantMatches(g, d.resource, d.action)) &&
         scopeOverlap(d),
     )
   )
     fail("النطاق المطلوب يشمل صلاحيات محجوبة عن حسابك", 403);
+}
+function ensureRoleAssignment(
+  c,
+  member,
+  proposedCommittees = c.committees,
+  previous = member,
+) {
+  const before = automaticRoleGrants(
+    withCommittees(previous, c.committees),
+    c.bundles,
+  ).map((g) => JSON.stringify(g));
+  for (const g of automaticRoleGrants(
+    withCommittees(member, proposedCommittees),
+    c.bundles,
+  ))
+    if (!before.includes(JSON.stringify(g))) ensureGrantAccess(c, g);
 }
 async function handle(req, env) {
   const url = new URL(req.url),
@@ -940,23 +979,35 @@ async function handle(req, env) {
   if (p === "/api/registration/request")
     fail("ابدأ بتوثيق الجوال عبر واتساب لإرسال طلب الانضمام", 400);
   const c = await context(req, env);
+  if (p === "/api/permissions" && req.method === "GET") {
+    c.need("permissions", "view");
+    return json(
+      permissionCatalog(
+        c,
+        await all(db, "SELECT * FROM nl_members ORDER BY name"),
+        await membershipTitles(db),
+      ),
+    );
+  }
   if (p === "/api/location/resolve" && req.method === "POST") {
     await limit(db, "maps:resolve:" + c.u.id, 20, 60);
     const body = await jsonBody(req, 8192);
     return json(await resolveGoogleMaps(body.url, env.MAPS_FETCH || fetch));
   }
   if (p === "/api/heritage-results/manage" && req.method === "GET") {
-    c.need("settings", "manage");
+    c.need("heritage_results", "view");
     return json(await heritageResults(db));
   }
 
   if (p === "/api/join-requests" && req.method === "GET")
     return json(await joinDashboard(db, c));
-  if (p === "/api/join-policy" && req.method === "GET")
+  if (p === "/api/join-policy" && req.method === "GET") {
+    c.need("join_policy", "view");
     return json({
       policy: await joinPolicy(db),
       can_edit_policy: isJoinAdmin(c),
     });
+  }
   if (p === "/api/agent/history" && req.method === "GET") {
     c.need("assistant", "view");
     return json({ turns: await sanadHistory(env, c, await state(db, c)) });
@@ -1097,6 +1148,7 @@ async function handle(req, env) {
             : "edit",
       r,
     );
+    c.need(resource, "upload", r);
     if (
       !file ||
       typeof file === "string" ||
@@ -1158,6 +1210,8 @@ async function handle(req, env) {
           JSON.stringify({
             purpose,
             pending_resource: draft ? resource : undefined,
+            project_id: r.project_id,
+            committee_id: r.committee_id || parse(r.meta).committee_id,
           }),
           id,
         ),
@@ -1180,16 +1234,8 @@ async function handle(req, env) {
   if (/^\/api\/guides\/[^/]+\/export$/.test(p) && req.method === "GET") {
     const g = await record(db, "documents", p.split("/")[3]);
     const t = g.task_id ? await record(db, "tasks", g.task_id) : null;
-    if (!(
-      c.can("documents", "view", g) ||
-      (t && c.can("tasks", "view", t)) ||
-      (g.created_by === c.u.id && c.can("assistant", "view", g))
-    ))
-      fail("الدليل غير متاح", 403);
-    if (!(
-      c.can("documents", "export", g) ||
-      (t && c.can("tasks", "export", t))
-    ))
+    if (!canDocument(c, "view", g, t)) fail("الدليل غير متاح", 403);
+    if (!canDocument(c, "export", g, t))
       fail("ليس لديك صلاحية تصدير الدليل", 403);
     return json({ ...g, content: parse(g.content) });
   }
@@ -1214,7 +1260,9 @@ async function handle(req, env) {
           "SELECT * FROM nl_guides WHERE task_id=? ORDER BY version DESC",
           t.id,
         )
-      ).map((g) => ({ ...g, content: parse(g.content) })),
+      )
+        .filter((g) => canDocument(c, "view", g, t))
+        .map((g) => ({ ...g, content: parse(g.content) })),
     });
   }
   if (p === "/api/export" && req.method === "GET") {
@@ -1231,14 +1279,26 @@ async function handle(req, env) {
     const st = await state(db, c, url.searchParams.get("project") || "");
     const resource = type === "media" ? "suppliers" : type;
     let rows = st[resource] || [];
-    rows = rows.filter((r) => c.can(resource, "export", r));
+    rows = rows.filter(
+      (r) =>
+        c.can(resource, "export", r) &&
+        c.can("reports", "export", r) &&
+        (type !== "media" || c.can("media", "export", r)),
+    );
     if (type === "media") rows = rows.filter((r) => r.meta?.media_profile);
     if (
       !rows.length &&
-      !c.can(resource, "export", {
-        project_id: url.searchParams.get("project") || "",
-        committee_id: url.searchParams.get("committee") || "",
-      })
+      !(
+        c.can(resource, "export", {
+          project_id: url.searchParams.get("project") || "",
+          committee_id: url.searchParams.get("committee") || "",
+        }) &&
+        c.can("reports", "export", {
+          project_id: url.searchParams.get("project") || "",
+          committee_id: url.searchParams.get("committee") || "",
+        }) &&
+        (type !== "media" || c.can("media", "export"))
+      )
     )
       fail("ليس لديك صلاحية التصدير", 403);
     const ids = url.searchParams.get("ids")?.split(",");
@@ -1296,6 +1356,8 @@ async function handle(req, env) {
   if (Number(req.headers.get("content-length")) > 1048576)
     fail("الطلب أكبر من الحد المسموح", 413);
   const b = await jsonBody(req);
+  if (p.startsWith("/api/permissions/"))
+    c.need("permissions", p.endsWith("/save") ? "manage" : "view");
   const replayKey = req.headers.get("idempotency-key");
   if (replayKey) {
     if (!/^[a-zA-Z0-9_-]{8,100}$/.test(replayKey)) fail("معرف الطلب غير صالح");
@@ -1313,11 +1375,137 @@ async function handle(req, env) {
   }
   await prepareInlinePeople(db, c, b, p, env, {
     record,
-    grant: ensureGrantAccess,
+    grant: (ctx, grant) => {
+      ctx.need("permissions", "manage");
+      ensureGrantAccess(ctx, grant);
+    },
   });
   if (db.inline)
     c.inlineCommit = async (statements, result) =>
       (await commit(db, c, req, b, statements, result)).json();
+  if (p === "/api/permissions/save" || p === "/api/permissions/preview") {
+    const kind = choice(b.kind, ["user", "role"]);
+    const grants = validateGrants(b.grants);
+    const members = await all(db, "SELECT * FROM nl_members ORDER BY name");
+    const catalog = permissionCatalog(c, members, await membershipTitles(db));
+    const target = (kind === "user" ? catalog.users : catalog.roles).find(
+      (x) => x.id === b.id,
+    );
+    if (!target) fail("اختر مستخدمًا أو صفة متاحة", 404);
+    if (p.endsWith("/preview")) {
+      const member = members.find(
+        (m) => m.id === (kind === "user" ? b.id : b.user_id),
+      );
+      if (!member) fail("اختر المستخدم لمعاينة وصوله");
+      return json(
+        previewPermissions(c, member, grants, kind === "role" ? b.id : null),
+      );
+    }
+    if (!Number.isSafeInteger(b.version) || b.version !== target.version)
+      fail("تغيرت الصلاحيات. حدّث الصفحة قبل الحفظ", 409);
+    for (const grant of grants) {
+      if (
+        grant.scope === "committee" &&
+        !c.committees.some((k) => k.id === grant.committeeId)
+      )
+        fail("اللجنة غير متاحة");
+      if (
+        grant.scope === "project" &&
+        !c.projectRows.some((p) => p.id === grant.projectId)
+      )
+        fail("المشروع غير متاح");
+      ensureGrantAccess(c, grant);
+    }
+    const nextBundles =
+      kind === "role"
+        ? [...c.bundles.filter((x) => x.id !== b.id), { id: b.id, grants }]
+        : c.bundles;
+    const nextActor =
+      kind === "user" && b.id === c.u.id ? { ...c.u, grants } : c.u;
+    if (
+      !permitted(nextActor, "permissions", "manage", null, nextBundles) ||
+      !permitted(nextActor, "permissions", "view", null, nextBundles)
+    )
+      fail("حافظ على وصولك إلى إدارة الصلاحيات قبل الحفظ");
+    const stmt =
+      kind === "user"
+        ? db
+            .prepare(
+              "UPDATE nl_members SET grants=?,version=version+1 WHERE id=? AND version=?",
+            )
+            .bind(JSON.stringify(grants), b.id, b.version)
+        : c.bundles.some((x) => x.id === b.id)
+          ? db
+              .prepare(
+                "UPDATE nl_bundles SET name=?,grants=?,version=version+1 WHERE id=? AND version=?",
+              )
+              .bind(target.name, JSON.stringify(grants), b.id, b.version)
+          : db
+              .prepare(
+                "INSERT INTO nl_bundles(id,name,grants) VALUES(?,?,?) ON CONFLICT(id) DO NOTHING",
+              )
+              .bind(b.id, target.name, JSON.stringify(grants));
+    // A concurrent revocation must win over this request's authorization snapshot.
+    // Keep the target write first: commit's affected-row guard belongs to it.
+    const snapshots = [
+      db
+        .prepare(
+          "UPDATE nl_members SET version=version WHERE id=? AND version=? AND status='active'",
+        )
+        .bind(
+          c.u.id,
+          c.u.version + (kind === "user" && b.id === c.u.id ? 1 : 0),
+        ),
+      db.prepare("INSERT INTO nl_guards VALUES(?,changes())").bind(uid()),
+      ...c.committees.flatMap((k) => [
+        db
+          .prepare(
+            "UPDATE nl_committees SET version=version WHERE id=? AND version=?",
+          )
+          .bind(k.id, k.version),
+        db.prepare("INSERT INTO nl_guards VALUES(?,changes())").bind(uid()),
+      ]),
+      ...c.bundles.flatMap((group) => [
+        db
+          .prepare(
+            "UPDATE nl_bundles SET version=version WHERE id=? AND version=?",
+          )
+          .bind(
+            group.id,
+            group.version + (kind === "role" && b.id === group.id ? 1 : 0),
+          ),
+        db.prepare("INSERT INTO nl_guards VALUES(?,changes())").bind(uid()),
+      ]),
+      db
+        .prepare(
+          "INSERT INTO nl_guards VALUES(?,(SELECT CASE WHEN count(*)=? THEN 1 ELSE 0 END FROM nl_bundles))",
+        )
+        .bind(
+          uid(),
+          c.bundles.length +
+            (kind === "role" && !c.bundles.some((x) => x.id === b.id) ? 1 : 0),
+        ),
+    ];
+    return commit(
+      db,
+      c,
+      req,
+      b,
+      [
+        stmt,
+        ...snapshots,
+        audit(
+          db,
+          c.u,
+          kind === "role" ? "تحديث صلاحيات صفة" : "تحديث صلاحيات مستخدم",
+          "permissions",
+          b.id,
+        ),
+      ],
+      { id: b.id },
+      true,
+    );
+  }
   if (p === "/api/join-requests/forward" && db.inline) {
     const result = await reviewJoin(db, c, b, "forward");
     return json(result);
@@ -1441,6 +1629,12 @@ async function handle(req, env) {
       manager !== (old?.manager_id || null)
     ) {
       c.need("users", "manage");
+      c.need("permissions", "manage");
+      c.need(
+        "committees",
+        "manage",
+        old || { id, committee_id: id, project_id: project.id },
+      );
       for (const m of members) {
         if (m.id !== newManager?.id) await record(db, "users", m.id);
         string(m.role, 80);
@@ -1471,6 +1665,42 @@ async function handle(req, env) {
           });
     }
     if (manager && !newManager) await activeMember(db, manager);
+    const proposedCommittee = {
+      ...old,
+      id,
+      project_id: project.id,
+      manager_id: manager,
+      members,
+      config: {
+        ...committeeConfig(old),
+        ...b.config,
+        ...(b.second_approver_id !== undefined
+          ? { second_approver_id: b.second_approver_id }
+          : {}),
+        ...(b.review_delegate_id !== undefined
+          ? { review_delegate_id: b.review_delegate_id }
+          : {}),
+      },
+    };
+    const proposedCommittees = [
+      ...c.committees.filter((k) => k.id !== id),
+      proposedCommittee,
+    ];
+    const affectedIds = new Set(
+      [
+        ...members.map((m) => m.id),
+        manager,
+        proposedCommittee.config.second_approver_id,
+        proposedCommittee.config.review_delegate_id,
+      ].filter(Boolean),
+    );
+    for (const memberId of affectedIds) {
+      const member =
+        memberId === newManager?.id
+          ? { ...newManager, status: "active" }
+          : await record(db, "users", memberId);
+      ensureRoleAssignment(c, member, proposedCommittees);
+    }
     const statuses = TASK_FLOW;
     if (
       b.config !== undefined &&
@@ -1504,8 +1734,10 @@ async function handle(req, env) {
       b.second_approver_id === undefined
         ? secondApprover(old)
         : b.second_approver_id || null;
-    if (cfg.second_approver_id !== secondApprover(old))
+    if (cfg.second_approver_id !== secondApprover(old)) {
       c.need("users", "manage");
+      c.need("permissions", "manage");
+    }
     if (cfg.second_approver_id) {
       if (cfg.second_approver_id === manager)
         fail(
@@ -1532,8 +1764,10 @@ async function handle(req, env) {
     if (
       cfg.review_delegate_id !==
       (committeeConfig(old).review_delegate_id || null)
-    )
+    ) {
       c.need("users", "manage");
+      c.need("permissions", "manage");
+    }
     if (cfg.review_delegate_id) {
       if ([manager, cfg.second_approver_id].includes(cfg.review_delegate_id))
         fail("بديل الاعتماد يجب أن يكون شخصًا ثالثًا");
@@ -2349,6 +2583,11 @@ async function handle(req, env) {
       review: ["done", "doing"],
       done: ["doing"],
     };
+    if (next === "review") c.need("tasks", "submit", t);
+    if (t.status === "review" || t.status === "done") {
+      c.need("tasks", "review", t);
+      if (next === "doing") c.need("tasks", "return", t);
+    }
     if (!(allowed[t.status] || ["doing"]).includes(next))
       fail("انتقل حسب تسلسل المهمة: بدء، تنفيذ، مراجعة، ثم اعتماد");
     if (
@@ -2434,7 +2673,7 @@ async function handle(req, env) {
   if (p === "/api/tasks/comment") {
     const t = await record(db, "tasks", b.id);
     c.need("tasks", "view", t);
-    c.need("tasks", "edit", t);
+    c.need("tasks", "comment", t);
     const body = string(b.body, 6000, true);
     if (!body && !(b.files || []).length) fail("اكتب رسالة أو أرفق ملفًا");
     const reply = b.reply_to
@@ -2599,6 +2838,7 @@ async function handle(req, env) {
       iban,
     };
     if (b.media_profile !== undefined) {
+      c.need("media", old ? "edit" : "create", old || {});
       const mp = b.media_profile;
       if (
         !mp ||
@@ -2840,6 +3080,7 @@ async function handle(req, env) {
       id = old?.id || uid();
     const route = expenseRoute(committee, claimant, old?.created_by || c.u.id);
     if (status === "pending") {
+      c.need("expenses", "submit", candidate);
       if (!route[0] || !route[1])
         fail(
           "يلزم تعيين المعتمدين، وبديل اعتماد إذا كان صاحب المصروف أو منشئه ضمن المسار",
@@ -2982,7 +3223,8 @@ async function handle(req, env) {
   }
   if (p === "/api/expenses/review") {
     const e = await record(db, "expenses", b.id);
-    c.need("expenses", "approve", e);
+    c.need("expenses", "review", e);
+    c.need("expenses", choice(b.decision, ["approve", "return", "reject"]), e);
     c.need("expenses", "view", e);
     if (!fieldVisible(c.u, "expenses", "amount", e, c.bundles))
       fail("لا يمكن الاعتماد دون مشاهدة المبلغ", 403);
@@ -3015,10 +3257,17 @@ async function handle(req, env) {
           : "الاعتماد الآن لدى المعتمد الثاني",
         403,
       );
-    const decision = choice(b.decision, ["approve", "return"]),
+    const decision = choice(b.decision, ["approve", "return", "reject"]),
       approved = decision === "approve";
     const note = string(b.reason || b.note, 1500, approved),
-      status = !approved ? "returned" : ix === 0 ? "pending" : "approved";
+      status =
+        decision === "reject"
+          ? "rejected"
+          : !approved
+            ? "returned"
+            : ix === 0
+              ? "pending"
+              : "approved";
     meta.approvals = [
       ...(meta.approvals || []),
       {
@@ -3114,7 +3363,9 @@ async function handle(req, env) {
             ? ix === 0
               ? "اعتماد مدير اللجنة"
               : "اعتماد المعتمد الثاني"
-            : "إعادة المصروف للاستكمال",
+            : decision === "reject"
+              ? "رفض المصروف"
+              : "إعادة المصروف للاستكمال",
           "expenses",
           e.id,
           e.project_id,
@@ -3125,11 +3376,13 @@ async function handle(req, env) {
           status === "pending" ? route[1] : meta.claimant_id || e.created_by,
           status === "pending"
             ? "مصروف ينتظر اعتمادك النهائي"
-            : status === "returned"
-              ? "أُعيد المصروف للاستكمال"
-              : meta.funding_source === "advance"
-                ? "اعتُمد المصروف وخُصم من عهدتك"
-                : "اعتُمد المصروف",
+            : status === "rejected"
+              ? "رُفض المصروف"
+              : status === "returned"
+                ? "أُعيد المصروف للاستكمال"
+                : meta.funding_source === "advance"
+                  ? "اعتُمد المصروف وخُصم من عهدتك"
+                  : "اعتُمد المصروف",
           e.title,
           "expenses",
           e.id,
@@ -3137,6 +3390,47 @@ async function handle(req, env) {
         ),
       ],
       { id: e.id, status },
+      true,
+    );
+  }
+  if (p === "/api/expenses/cancel") {
+    const e = await record(db, "expenses", b.id);
+    c.need("expenses", "view", e);
+    c.need("expenses", "cancel", e);
+    const meta = parse(e.meta);
+    if (![e.created_by, meta.claimant_id].includes(c.u.id))
+      c.need("expenses", "manage", e);
+    if (!["draft", "returned", "pending"].includes(e.status))
+      fail("يمكن إلغاء الطلب قبل اعتماده فقط", 409);
+    if ((await record(db, "projects", e.project_id)).status === "closed")
+      fail("المشروع مغلق");
+    meta.cancellation = {
+      by: c.u.id,
+      at: now(),
+      reason: string(b.reason, 1500),
+    };
+    const stmt = db
+      .prepare(
+        "UPDATE nl_expenses SET status='cancelled',meta=?,version=version+1 WHERE id=? AND version=? AND status IN ('draft','returned','pending') AND NOT EXISTS (SELECT 1 FROM nl_payments WHERE expense_id=?)",
+      )
+      .bind(JSON.stringify(meta), e.id, b.version, e.id);
+    return commit(
+      db,
+      c,
+      req,
+      b,
+      [
+        stmt,
+        audit(
+          db,
+          c.u,
+          "إلغاء مصروف قبل الاعتماد",
+          "expenses",
+          e.id,
+          e.project_id,
+        ),
+      ],
+      { id: e.id, status: "cancelled" },
       true,
     );
   }
@@ -3424,6 +3718,7 @@ async function handle(req, env) {
     if (type !== "return" && a.condition !== "ready")
       fail("الأصل غير جاهز للتسليم");
     const member = await activeMember(db, b.member_id);
+    c.need("assets", type, a);
     if (b.project_id) {
       const pr = await record(db, "projects", b.project_id);
       c.need("projects", "view", pr);
@@ -3490,6 +3785,7 @@ async function handle(req, env) {
   }
   if (p === "/api/users/access-preview") {
     c.need("users", "manage");
+    c.need("permissions", "view");
     const grants = validateGrants(b.grants || []),
       id = b.id || "access-preview-member";
     if (!Array.isArray(b.memberships) || b.memberships.length > 40)
@@ -3513,7 +3809,13 @@ async function handle(req, env) {
       };
     });
     const u = withCommittees(
-        { id, status: "active", grants, bundles: b.bundles || [] },
+        {
+          id,
+          status: b.status || "active",
+          team: b.team || "",
+          grants,
+          bundles: b.bundles || [],
+        },
         memberships,
       ),
       access = [];
@@ -3627,11 +3929,23 @@ async function handle(req, env) {
   if (p === "/api/users/save") {
     c.need("users", "manage");
     const old = b.id ? await record(db, "users", b.id) : null;
+    if (
+      !old ||
+      JSON.stringify(b.grants || []) !==
+        JSON.stringify(parse(old.grants, [])) ||
+      JSON.stringify(b.bundles || []) !==
+        JSON.stringify(parse(old.bundles, [])) ||
+      b.memberships !== undefined ||
+      (b.team || "") !== (old.team || "")
+    )
+      c.need("permissions", "manage");
     const id = old?.id || uid();
     const grants = validateGrants(b.grants || []);
     for (const g of grants) ensureGrantAccess(c, g);
     const bundleIds = Array.isArray(b.bundles) ? b.bundles : [];
     for (const bid of bundleIds) {
+      if (isRoleBundle(bid))
+        fail("قوالب الصفات تطبق من الصفة نفسها ولا تسند كحزمة عامة");
       const group = c.bundles.find((x) => x.id === bid);
       if (!group) fail("مجموعة صلاحيات غير متاحة");
       for (const g of parse(group.grants, [])) ensureGrantAccess(c, g);
@@ -3642,6 +3956,12 @@ async function handle(req, env) {
       "suspended",
       "invited",
     ]);
+    ensureRoleAssignment(
+      c,
+      { ...old, id, status, team: b.team || "" },
+      c.committees,
+      old || { id, team: "" },
+    );
     if (
       id === c.u.id &&
       (status !== "active" ||
@@ -3655,6 +3975,15 @@ async function handle(req, env) {
           "manage",
           null,
           c.bundles,
+        ) ||
+        !["view", "manage"].every((action) =>
+          permitted(
+            { ...c.u, grants, bundles: bundleIds, team: b.team || "" },
+            "permissions",
+            action,
+            null,
+            c.bundles,
+          ),
         ))
     )
       fail("حافظ على صلاحيتك الإدارية قبل تعديل حسابك");
@@ -3689,6 +4018,7 @@ async function handle(req, env) {
         const members = previous.filter((x) => x.id !== id);
         if (link)
           members.push({
+            ...(was?.role === link.role ? was : {}),
             id,
             role: link.role,
             grants:
@@ -3711,6 +4041,14 @@ async function handle(req, env) {
             former.grants = MEMBER_PRESETS.member;
           }
         }
+        ensureRoleAssignment(
+          c,
+          { ...old, id, status, team: b.team || "" },
+          c.committees.map((k) =>
+            k.id === committee.id ? { ...k, members, manager_id: manager } : k,
+          ),
+          old || { id },
+        );
         membershipStatements.push(
           db
             .prepare(
@@ -3778,19 +4116,30 @@ async function handle(req, env) {
   }
   if (p === "/api/bundles/save") {
     c.need("users", "manage");
+    c.need("permissions", "manage");
+    if (isRoleBundle(b.id)) fail("تعدل صلاحيات الصفات من قسم الصلاحيات فقط");
     const grants = validateGrants(b.grants || []);
     for (const g of grants) ensureGrantAccess(c, g);
     const id = b.id || uid(),
       old = c.bundles.find((x) => x.id === id);
     if (
       old &&
-      !permitted(
+      (!permitted(
         c.u,
         "users",
         "manage",
         null,
         c.bundles.map((x) => (x.id === id ? { ...x, grants } : x)),
-      )
+      ) ||
+        !["view", "manage"].every((action) =>
+          permitted(
+            c.u,
+            "permissions",
+            action,
+            null,
+            c.bundles.map((x) => (x.id === id ? { ...x, grants } : x)),
+          ),
+        ))
     )
       fail("لا يمكن تعديل الحزمة بما يلغي وصولك الإداري");
     const stmt = old
@@ -3919,9 +4268,17 @@ async function handle(req, env) {
     const old = b.id
       ? await one(db, "SELECT * FROM nl_guides WHERE id=?", b.id)
       : null;
-    if (old && old.created_by !== c.u.id && !c.can("documents", "edit", old))
-      fail("الدليل غير متاح للتعديل", 403);
     const task = b.task_id ? await record(db, "tasks", b.task_id) : null;
+    if (old && old.project_id !== project.id) fail("الدليل مرتبط بمشروع آخر");
+    if (
+      !canDocument(
+        c,
+        old ? "edit" : "create",
+        old || { project_id: project.id, created_by: c.u.id },
+        task,
+      )
+    )
+      fail("الدليل غير متاح للتعديل", 403);
     if (task) {
       c.need("tasks", "edit", task);
       if (task.project_id !== project.id) fail("المهمة من مشروع آخر");
@@ -3984,6 +4341,7 @@ async function handle(req, env) {
   }
   if (p === "/api/agent/history/clear") {
     c.need("assistant", "view");
+    c.need("assistant", "delete");
     await db
       .prepare("DELETE FROM nl_agent_turns WHERE member_id=?")
       .bind(c.u.id)
@@ -4048,6 +4406,7 @@ async function handle(req, env) {
     });
   }
   if (p === "/api/contact/preferences") {
+    c.need("profile", "edit");
     await db
       .prepare(
         "INSERT INTO nl_contact_preferences(member_id,whatsapp,consent_at) VALUES(?,?,?) ON CONFLICT(member_id) DO UPDATE SET whatsapp=excluded.whatsapp,consent_at=excluded.consent_at",

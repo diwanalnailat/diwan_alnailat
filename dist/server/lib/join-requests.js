@@ -72,9 +72,15 @@ export function mayReadJoin(c, row, action = "view") {
 }
 export function joinAccess(c) {
   return (
-    isJoinAdmin(c) ||
+    (isJoinAdmin(c) && mayReadJoin(c, {})) ||
     c.committees.some(
-      (k) => isCommitteeSupervisor(k, c.u.id) && c.can("committees", "view", k),
+      (k) =>
+        isCommitteeSupervisor(k, c.u.id) &&
+        mayReadJoin(c, {
+          committee_id: k.id,
+          project_id: k.project_id,
+          assigned_to: c.u.id,
+        }),
     )
   );
 }
@@ -170,6 +176,7 @@ export async function joinDashboard(db, c) {
   };
 }
 export async function saveJoinPolicy(db, c, b) {
+  c.need("join_policy", "manage");
   if (!isJoinAdmin(c)) fail("تعديل السياسة متاح للإدارة فقط", 403);
   const title = string(b.title, 160),
     content = string(b.content, 20000);
@@ -252,7 +259,8 @@ export async function reviewJoin(db, c, b, action) {
   }
   if (!["approve", "reject"].includes(b.decision))
     fail("اختر قبول الطلب أو رفضه");
-  if (!mayReadJoin(c, r, "approve")) fail("ليس لديك صلاحية لاتخاذ القرار", 403);
+  if (!mayReadJoin(c, r, "review") || !mayReadJoin(c, r, b.decision))
+    fail("ليس لديك صلاحية لاتخاذ القرار", 403);
   let memberId = null;
   if (b.decision === "approve") {
     if (

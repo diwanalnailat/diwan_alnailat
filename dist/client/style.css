@@ -6057,3 +6057,96 @@ body {
     12px ui-monospace,
     monospace;
 }
+/* Permission management remains readable without a wide action matrix. */
+.permissions-center,
+.permission-module-grid,
+.permission-preview-grid,
+.permission-rule-list {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+}
+.permission-module-grid,
+.permission-preview-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 290px), 1fr));
+}
+.permission-module,
+.permission-rule {
+  min-width: 0;
+  margin: 0;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+.permission-module legend,
+.permission-rule legend {
+  padding-inline: 8px;
+  font-weight: 600;
+}
+.permission-action-grid {
+  display: grid;
+  gap: 10px;
+}
+.permission-action-grid label {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(110px, 145px);
+  gap: 12px;
+  align-items: center;
+}
+.permission-action-grid select {
+  min-width: 0;
+  width: 100%;
+  min-height: 44px;
+}
+.permission-edit-fields {
+  border: 0;
+  min-width: 0;
+  padding: 0;
+  margin: 24px 0;
+}
+.permission-target-header,
+.permission-save-actions,
+.permission-bundle-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+}
+.permission-save-actions {
+  justify-content: flex-start;
+  margin-block: 24px;
+}
+.permissions-center :is(h2, h3, h4, p, span, label, legend, button) {
+  overflow-wrap: anywhere;
+}
+.permissions-center :is(input, select, textarea) {
+  max-width: 100%;
+  min-width: 0;
+}
+.permission-targets .form-grid {
+  margin-top: 20px;
+}
+#permissionsServerPreview {
+  margin-top: 24px;
+}
+@media (max-width: 640px) {
+  .permissions-center .panel-body {
+    padding: 16px;
+  }
+  .permission-module,
+  .permission-rule {
+    padding: 14px;
+  }
+  .permissions-center .form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .permission-save-actions > .button {
+    flex: 1 1 100%;
+    min-height: 44px;
+  }
+  .permission-targets .member-tabs {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

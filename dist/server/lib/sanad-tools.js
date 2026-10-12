@@ -1,6 +1,7 @@
 import { integrationError } from "./integrations.js";
 import { TASK_TYPES } from "./governance.js";
 import { validDate, money } from "./domain.js";
+import { canDocument } from "./document-access.js";
 
 export const READ_RESOURCES = [
   "projects",
@@ -228,6 +229,8 @@ export function validateDraft(resource, v, st, c) {
     committee_id: v.committee_id,
     created_by: c.u.id,
   };
+  if (resource === "guides" && !canDocument(c, "create", scope))
+    throw integrationError("إنشاء الأدلة خارج صلاحياتك", 403);
   // Partially described drafts can ask for context, but must not prefill unauthorized context.
   if (
     (v.project_id ||

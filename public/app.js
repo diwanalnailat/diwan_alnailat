@@ -63,6 +63,8 @@
     mic: '<rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-4 0h8"/>',
     edit: '<path d="m15 4 5 5M4 16 16 4a3 3 0 0 1 4 4L8 20l-5 1 1-5Z"/>',
     lock: '<rect x="5" y="10" width="14" height="12" rx="2"/><path d="M8 10V6a4 4 0 0 1 8 0v4m-4 5v3"/>',
+    permissions:
+      '<path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3Z"/><path d="m8 12 3 3 5-6"/>',
     sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1 1m12 12 1 1M5 19l1-1M18 6l1-1"/>',
   };
   const icon = (name, size = 18) =>
@@ -86,7 +88,8 @@
     media: "العلاقات الإعلامية",
     assets: "الأصول",
     documents: "الوثائق والأدلة",
-    users: "الأعضاء والصلاحيات",
+    users: "الأعضاء",
+    permissions: "الصلاحيات",
     settings: "الإعدادات",
     audit: "سجل العمليات",
     heritage: "عن النائلات",
@@ -202,11 +205,20 @@
     member = S?.user,
   ) {
     if (!member || member.status !== "active") return false;
+    const pairs = [
+      [resource, action],
+      ...(S?.permission_aliases?.[`${resource}:${action}`] || []).map((pair) =>
+        pair.split(":"),
+      ),
+    ];
     const gs = grants.filter(
       (g) =>
         (!g.expires || Date.parse(g.expires) > Date.now()) &&
-        (g.resource === "*" || g.resource === resource) &&
-        (g.action === "*" || g.action === action) &&
+        pairs.some(
+          ([r, a]) =>
+            (g.resource === "*" || g.resource === r) &&
+            (g.action === "*" || g.action === a),
+        ) &&
         ((g.scope || "all") === "all" ||
           (r &&
             ((g.scope === "committee" &&
@@ -372,6 +384,7 @@
       [
         "join_requests",
         "users",
+        "permissions",
         "heritage_results",
         "join_policy",
         "settings",
@@ -383,7 +396,7 @@
       .map(
         (g, i) =>
           `${i ? '<div class="nav-separator"></div>' : ""}${g
-            .filter((k) => k === "heritage" || DiwanViews.visible(S, k))
+            .filter(pageVisible)
             .map(
               (k) =>
                 `<button class="nav ${page === k ? "active" : ""}" data-page="${k}" ${page === k ? 'aria-current="page"' : ""}>${icon(k)}<span>${labels[k]}</span>${k === "tasks" && S.tasks.filter((t) => t.assignee_id === S.user.id && !done(t)).length ? `<span class="nav-count">${num(S.tasks.filter((t) => t.assignee_id === S.user.id && !done(t)).length)}</span>` : ""}${k === "users" && S.members.some((m) => m.status === "pending") ? '<span class="status-dot"></span>' : ""}</button>`,
@@ -424,6 +437,11 @@
     renderNav();
     render();
     window.scrollTo(0, 0);
+  }
+  function pageVisible(p) {
+    return S.permission_aliases
+      ? S.modules.includes(p)
+      : DiwanViews.visible(S, p);
   }
   const btn = (text, action, id = "", variant = "button-dark", sym = "plus") =>
     `<button class="button ${variant}" data-action="${action}"${id ? ` data-id="${esc(id)}"` : ""}>${sym ? icon(sym) : ""}${text}</button>`;
@@ -558,7 +576,7 @@
         ...(m.title ? [m.title] : []),
       ]),
     ];
-    return `<div class="membership-row" data-membership><div class="form-grid">${field(
+    return `<div class="membership-row" data-membership data-original-person="${esc(m.id)}" data-original-grants="${esc(JSON.stringify(m.grants || []))}"><div class="form-grid">${field(
       "العضو",
       select(
         "membership_id",
@@ -579,41 +597,7 @@
         ],
         m.title ? "title:" + m.title : m.role,
       ),
-    )}<div class="full" data-membership-title hidden>${field("اسم صفة العضوية *", input("membership_title", m.title || "", "text", 'disabled maxlength="80" placeholder="مثال: منسق الضيافة"'), true)}</div></div><details><summary>تخصيص صلاحيات هذا العضو في هذه اللجنة</summary><p class="muted">الصفة قالب بداية. يمكنك إضافة الصلاحيات أو سحبها. المنع الصريح يتقدم على السماح.</p><div class="membership-permissions">${[
-      "tasks",
-      "expenses",
-      "committees",
-    ]
-      .map(
-        (resource) =>
-          `<fieldset><legend>${labels[resource]}</legend>${resourceActions[
-            resource
-          ]
-            .filter(
-              (a) =>
-                a !== "manage" &&
-                !(resource === "committees" && a === "create"),
-            )
-            .map((action) => {
-              const g = m.grants.find(
-                (g) => g.resource === resource && g.action === action,
-              );
-              return `<label>${actionLabels[action]}${select(
-                "membership_permission",
-                [
-                  ["", "حسب الدور"],
-                  ["allow", "سماح"],
-                  ["deny", "منع"],
-                ],
-                g?.effect || "",
-                `data-resource="${resource}" data-perm-action="${action}"`,
-              )}</label>`;
-            })
-            .join("")}</fieldset>`,
-      )
-      .join(
-        "",
-      )}</div><label class="checklist-row"><input type="checkbox" name="membership_assigned" ${m.grants.some((g) => g.assignedOnly) ? "checked" : ""}> مهامه المسندة إليه أو التي يشارك فيها فقط</label></details><button type="button" class="button button-ghost compact" data-action="membership-remove">إزالة من اللجنة</button></div>`;
+    )}<div class="full" data-membership-title hidden>${field("اسم صفة العضوية *", input("membership_title", m.title || "", "text", 'disabled maxlength="80" placeholder="مثال: منسق الضيافة"'), true)}</div></div><p class="form-note">صلاحيات الصفة تُدار من مركز الصلاحيات. تبقى قواعد العضو الحالية محفوظة.</p><button type="button" class="button button-ghost compact" data-action="membership-remove">إزالة من اللجنة</button></div>`;
   }
   function managerFields(c, access) {
     const existing = select(
@@ -690,16 +674,14 @@
                         .value.slice(6),
                     }
                   : {}),
-              grants: [...row.querySelectorAll("[data-perm-action]")]
-                .filter((x) => x.value)
-                .map((x) => ({
-                  resource: x.dataset.resource,
-                  action: x.dataset.permAction,
-                  effect: x.value,
-                  assignedOnly:
-                    x.dataset.resource === "tasks" &&
-                    row.querySelector("[name=membership_assigned]").checked,
-                })),
+              grants:
+                row.dataset.originalPerson ===
+                  row.querySelector("[name=membership_id]").value &&
+                row.dataset.originalPerson
+                  ? JSON.parse(row.dataset.originalGrants)
+                  : membershipPreset(
+                      row.querySelector("[name=membership_role]").value,
+                    ),
             }),
           );
           b.config = {
@@ -1024,6 +1006,8 @@
     pending: ["بانتظار الاعتماد", "amber"],
     approved: ["معتمد", "green"],
     returned: ["معاد للتعديل", "red"],
+    rejected: ["مرفوض", "red"],
+    cancelled: ["ملغى", ""],
   };
   function expensePill(e) {
     const [name, color] = expenseStatuses[e.status] || [e.status, ""];
@@ -1446,10 +1430,10 @@
       );
     return (
       heading(
-        "المستخدمون والصلاحيات",
+        "أعضاء الديوان",
         "راجع طلبات الانضمام، وحدد لكل عضو ما يراه وما يستطيع إنجازه.",
         manage
-          ? btn("حزمة صلاحيات", "bundle-new", "", "", "settings") +
+          ? btn("الصلاحيات", "permissions-open", "", "", "lock") +
               btn("إضافة عضو بنفسي", "user-new")
           : "",
       ) +
@@ -1479,7 +1463,7 @@
                       .filter((c) => c.members.some((x) => x.id === m.id))
                       .map((c) => esc(c.name))
                       .join("، ") || "دون عضوية لجنة"
-                  }</small></td><td>${manage ? btn(m.status === "pending" ? "مراجعة الطلب" : "تعديل الوصول", "user-edit", m.id, "button-ghost compact", "settings") : ""}</td></tr>`,
+                  }</small></td><td>${manage ? btn(m.status === "pending" ? "مراجعة الطلب" : "بيانات العضو", "user-edit", m.id, "button-ghost compact", "settings") : ""}</td></tr>`,
               ),
             )
           : empty(
@@ -1489,17 +1473,7 @@
                 : "يمكنك تجهيز عضو جديد أو اختيار قائمة أخرى.",
             )
       }</section>
-      ${
-        S.bundles.length
-          ? `<details class="panel member-bundles"><summary>حزم الصلاحيات المحفوظة · ${num(S.bundles.length)}</summary>${table(
-              ["الحزمة", "القواعد", "الأعضاء", ""],
-              S.bundles.map(
-                (b) =>
-                  `<tr><td>${esc(b.name)}</td><td>${num(b.grants.length)}</td><td>${num(S.members.filter((m) => m.bundles.includes(b.id)).length)}</td><td>${manage ? btn("تعديل", "bundle-edit", b.id, "button-ghost compact", "edit") : ""}</td></tr>`,
-              ),
-            )}</details>`
-          : ""
-      }`
+      `
     );
   }
   function auditPage() {
@@ -1823,8 +1797,13 @@
     if (!S) return;
     document.body.classList.toggle("landing-mode", page === "heritage");
     $("#crumb").textContent = labels[page] || labels.overview;
-    if (page !== "heritage" && !DiwanViews.visible(S, page)) {
-      page = "overview";
+    if (!pageVisible(page)) {
+      page = Object.keys(labels).find(pageVisible);
+      if (!page) {
+        $("#content").innerHTML =
+          '<div class="notice">لا توجد أقسام متاحة لحسابك. تواصل مع مسؤول الصلاحيات.</div>';
+        return;
+      }
       location.hash = page;
     }
     const views = {
@@ -1844,6 +1823,7 @@
       assets: assetsPage,
       documents: documentsPage,
       users: membersPage,
+      permissions: permissionsPage,
       join_requests: joinRequestsPage,
       join_policy: joinPolicyPage,
       heritage_results: () => DiwanHeritageAdmin.page(heritageAdminContext()),
@@ -2567,8 +2547,20 @@
       );
     });
   }
+  function mayTransitionTask(t, next) {
+    return (
+      can("tasks", "edit", t) &&
+      (next !== "review" || can("tasks", "submit", t)) &&
+      (!["review", "done"].includes(t.status) ||
+        (can("tasks", "review", t) &&
+          (next !== "doing" || can("tasks", "return", t)))) &&
+      (next !== "done" || can("tasks", "approve", t))
+    );
+  }
   async function saveTaskStatus(t, next) {
     if (next === t.status) return;
+    if (!mayTransitionTask(t, next))
+      return toast("هذه المرحلة غير متاحة ضمن صلاحياتك.", true);
     const labels = {
       doing: t.status === "review" ? "إعادة المهمة للتنفيذ" : "بدء التنفيذ",
       blocked: "طلب مساندة",
@@ -2623,13 +2615,15 @@
       c = S.committees.find((c) => c.id === t.meta.committee_id),
       isManager = c?.manager_id === S.user.id;
     currentTask = t;
-    const possible = {
-      todo: ["doing", "blocked"],
-      doing: ["blocked", "review"],
-      blocked: ["doing", "review"],
-      review: isManager ? ["done", "doing"] : [],
-      done: isManager ? ["doing"] : [],
-    }[t.status] || ["doing"];
+    const possible = (
+      {
+        todo: ["doing", "blocked"],
+        doing: ["blocked", "review"],
+        blocked: ["doing", "review"],
+        review: isManager ? ["done", "doing"] : [],
+        done: isManager ? ["doing"] : [],
+      }[t.status] || ["doing"]
+    ).filter((next) => mayTransitionTask(t, next));
     const actionName = {
       doing:
         t.status === "review"
@@ -2661,7 +2655,7 @@
           })
           .join("") || '<p class="muted">لا توجد رسائل حتى الآن.</p>'
       }${
-        edit
+        can("tasks", "comment", t)
           ? `<form id="commentForm" class="comment-form"><div class="notice" id="replyHint" hidden></div><input name="reply_to" type="hidden">${textarea("body", "", 3, 'placeholder="اكتب سؤالك أو وضّح ما تحتاجه…"')}<details><summary>إشعار عضو محدد وإضافة مرفقات</summary>${multi(
               "mentions",
               S.people
@@ -2962,6 +2956,24 @@
             (item) =>
               item.id === (e.id ? e.meta.committee_id : v.committee_id || c.id),
           );
+        if (
+          button.value !== "draft" &&
+          !can(
+            "expenses",
+            "submit",
+            e.id
+              ? e
+              : {
+                  project_id: sel.project_id,
+                  committee_id: sel.id,
+                  created_by: S.user.id,
+                  meta: { committee_id: sel.id, claimant_id: claimant },
+                },
+          )
+        )
+          throw Error(
+            "لا تملك صلاحية إرسال المصروف للاعتماد. يمكنك حفظه كمسودة.",
+          );
         const files = [
           ...(f.dataset.extractedFile ? [f.dataset.extractedFile] : []),
           ...(await typedFiles(
@@ -3021,6 +3033,20 @@
                 f.querySelector("[name=committee_id]").value),
         ),
         source = f.querySelector("[name=funding_source]").value;
+      const send = f.querySelector('[type=submit]:not([value="draft"])');
+      if (send)
+        send.disabled = !can(
+          "expenses",
+          "submit",
+          e.id
+            ? e
+            : {
+                project_id: cc.project_id,
+                committee_id: cc.id,
+                created_by: S.user.id,
+                meta: { committee_id: cc.id, claimant_id: claimant },
+              },
+        );
       f.querySelector("[data-advance-choice]").hidden = source !== "advance";
       f.querySelector("[name=advance_id]").required = source === "advance";
       f.querySelector("[data-source-note]").textContent = {
@@ -3061,6 +3087,20 @@
           .filter((t) => expenseTaskAccess(t, cc))
           .map((t) => `<option value="${t.id}">${esc(t.title)}</option>`)
           .join("");
+      const send = f.querySelector('[type=submit]:not([value="draft"])');
+      if (send)
+        send.disabled = !can(
+          "expenses",
+          "submit",
+          e.id
+            ? e
+            : {
+                project_id: cc.project_id,
+                committee_id: cc.id,
+                created_by: S.user.id,
+                meta: { committee_id: cc.id, claimant_id: claimant },
+              },
+        );
       f.querySelector("[name=advance_id]").innerHTML =
         '<option value="">اختر عهدتك</option>' +
         S.advances
@@ -3092,10 +3132,10 @@
         e.status === "pending" &&
         reviewer === S.user.id &&
         ![e.created_by, e.meta?.claimant_id].includes(S.user.id) &&
-        can("expenses", "approve", e);
+        can("expenses", "review", e);
     modal(
       "ملف المصروف",
-      `<div class="summary-banner"><div><h2>${esc(e.title)}</h2><p>${esc(e.project_title || projectName(e.project_id))} / ${esc(c?.name || "يحتاج ربطًا بلجنة")}</p><span class="pill">${esc(settlementName(e))}</span></div><strong class="asset-quantity">${cash(e.amount)} <small>ر.س</small></strong></div><div class="detail-meta">${e.meta.budget_line_name || e.category ? `<span>تصنيف سابق</span><strong>${esc(e.meta.budget_line_name || e.category)}</strong>` : ""}<span>صاحب المصروف</span><strong>${esc(person(e.meta.claimant_id || e.created_by))}</strong><span>مصدر الدفع</span><strong>${esc(fundingNames[e.meta.funding_source] || "سجل سابق يحتاج مراجعة")}</strong><span>العهدة المرتبطة</span><strong>${esc(S.advances.find((a) => a.id === e.meta.advance_id)?.title || "لا توجد")}</strong><span>المهمة — اختياري</span><strong>${esc(S.tasks.find((t) => t.id === e.meta.task_id)?.title || "مصروف على اللجنة دون مهمة")}</strong><span>المورد</span><strong>${esc(S.suppliers.find((s) => s.id === e.supplier_id)?.name || "—")}</strong><span>رقم الإثبات / تاريخه</span><strong>${esc(e.number || "—")} / ${date(e.date)}</strong><span>الضريبة ضمن الإجمالي</span><strong>${cash(e.tax)}</strong><span>المسدد / المتبقي</span><strong>${cash(e.paid)} / ${e.amount_hidden ? "محجوب" : cash(e.amount - e.paid)}</strong></div><div class="approval-route">${route.map((member, i) => `<span class="${reviewer === member && e.status === "pending" ? "current" : ""}">${i + 1} · ${i ? "المعتمد الثاني" : "مدير اللجنة"}<strong>${member ? esc(person(member)) : "لم يُعيّن"}</strong><small>${(e.meta.approvals || []).some((a) => a.member_id === member && a.decision === "approve") ? "اعتمد" : "لم يعتمد بعد"}</small></span>`).join("")}</div>${e.meta.notes ? `<p class="detail-description">${esc(e.meta.notes)}</p>` : ""}<section class="detail-section"><h3>الفاتورة وإثباتات الدفع والسداد</h3>${fileList(files)}</section><section class="detail-section"><h3>سجل القرارات</h3>${(e.meta.approvals || []).map((a) => `<div class="activity"><strong>${esc(person(a.member_id))}</strong> · ${a.decision === "approve" ? "اعتمد المصروف" : "أعاده للاستكمال"} · ${date(a.at || a.date)}<p>${esc(a.note || a.reason || "")}</p></div>`).join("") || '<p class="muted">لم يصدر قرار بعد.</p>'}</section><section class="detail-section"><h3>السداد والتصفية</h3>${
+      `<div class="summary-banner"><div><h2>${esc(e.title)}</h2><p>${esc(e.project_title || projectName(e.project_id))} / ${esc(c?.name || "يحتاج ربطًا بلجنة")}</p><span class="pill">${esc(settlementName(e))}</span></div><strong class="asset-quantity">${cash(e.amount)} <small>ر.س</small></strong></div><div class="detail-meta">${e.meta.budget_line_name || e.category ? `<span>تصنيف سابق</span><strong>${esc(e.meta.budget_line_name || e.category)}</strong>` : ""}<span>صاحب المصروف</span><strong>${esc(person(e.meta.claimant_id || e.created_by))}</strong><span>مصدر الدفع</span><strong>${esc(fundingNames[e.meta.funding_source] || "سجل سابق يحتاج مراجعة")}</strong><span>العهدة المرتبطة</span><strong>${esc(S.advances.find((a) => a.id === e.meta.advance_id)?.title || "لا توجد")}</strong><span>المهمة — اختياري</span><strong>${esc(S.tasks.find((t) => t.id === e.meta.task_id)?.title || "مصروف على اللجنة دون مهمة")}</strong><span>المورد</span><strong>${esc(S.suppliers.find((s) => s.id === e.supplier_id)?.name || "—")}</strong><span>رقم الإثبات / تاريخه</span><strong>${esc(e.number || "—")} / ${date(e.date)}</strong><span>الضريبة ضمن الإجمالي</span><strong>${cash(e.tax)}</strong><span>المسدد / المتبقي</span><strong>${cash(e.paid)} / ${e.amount_hidden ? "محجوب" : cash(e.amount - e.paid)}</strong></div><div class="approval-route">${route.map((member, i) => `<span class="${reviewer === member && e.status === "pending" ? "current" : ""}">${i + 1} · ${i ? "المعتمد الثاني" : "مدير اللجنة"}<strong>${member ? esc(person(member)) : "لم يُعيّن"}</strong><small>${(e.meta.approvals || []).some((a) => a.member_id === member && a.decision === "approve") ? "اعتمد" : "لم يعتمد بعد"}</small></span>`).join("")}</div>${e.meta.notes ? `<p class="detail-description">${esc(e.meta.notes)}</p>` : ""}<section class="detail-section"><h3>الفاتورة وإثباتات الدفع والسداد</h3>${fileList(files)}</section><section class="detail-section"><h3>سجل القرارات</h3>${(e.meta.approvals || []).map((a) => `<div class="activity"><strong>${esc(person(a.member_id))}</strong> · ${a.decision === "approve" ? "اعتمد المصروف" : a.decision === "reject" ? "رفض المصروف" : a.decision === "cancel" ? "ألغى المصروف" : "أعاده للاستكمال"} · ${date(a.at || a.date)}<p>${esc(a.note || a.reason || "")}</p></div>`).join("") || '<p class="muted">لم يصدر قرار بعد.</p>'}</section><section class="detail-section"><h3>السداد والتصفية</h3>${
         payments.length
           ? table(
               ["التاريخ", "المبلغ — ر.س", "المرجع"],
@@ -3105,23 +3145,32 @@
               ),
             )
           : '<p class="muted">لا توجد دفعة أو تصفية مسجلة.</p>'
-      }</section><div class="form-actions">${can("expenses", "edit", e) && (["draft", "returned"].includes(e.status) || (e.status === "pending" && !e.meta.funding_source && can("users", "manage"))) ? btn("استكمال المصروف", "expense-edit", id, "", "edit") : ""}${canReview ? btn("إعادة للاستكمال", "expense-return", id, "button-ghost", "arrow") + btn((e.effective_approval_index ?? e.meta.approvalIndex) === 1 ? "الاعتماد النهائي والتسوية" : "الاعتماد الأول", "expense-approve", id, "button-dark", "check") : ""}${can("expenses", "pay", e) && e.status === "approved" && !e.amount_hidden && e.paid < e.amount ? btn("تسجيل السداد وإرفاق الإيصال", "expense-pay", id, "button-dark", "plus") : ""}</div>`,
+      }</section><div class="form-actions">${can("expenses", "edit", e) && (["draft", "returned"].includes(e.status) || (e.status === "pending" && !e.meta.funding_source && can("users", "manage"))) ? btn("استكمال المصروف", "expense-edit", id, "", "edit") : ""}${canReview && can("expenses", "return", e) ? btn("إعادة للاستكمال", "expense-return", id, "button-ghost", "arrow") : ""}${canReview && can("expenses", "reject", e) ? btn("رفض المصروف", "expense-reject", id, "button-ghost", "close") : ""}${canReview && can("expenses", "approve", e) ? btn((e.effective_approval_index ?? e.meta.approvalIndex) === 1 ? "الاعتماد النهائي والتسوية" : "الاعتماد الأول", "expense-approve", id, "button-dark", "check") : ""}${["draft", "returned", "pending"].includes(e.status) && can("expenses", "cancel", e) && ([e.created_by, e.meta?.claimant_id].includes(S.user.id) || can("expenses", "manage", e)) && !e.paid ? btn("إلغاء المصروف", "expense-cancel", id, "button-ghost", "close") : ""}${can("expenses", "pay", e) && e.status === "approved" && !e.amount_hidden && e.paid < e.amount ? btn("تسجيل السداد وإرفاق الإيصال", "expense-pay", id, "button-dark", "plus") : ""}</div>`,
       null,
       true,
     );
   }
-  function reviewExpense(id, approve) {
+  function reviewExpense(id, decision) {
     const e = S.expenses.find((x) => x.id === id);
+    const approve = decision === "approve",
+      reject = decision === "reject",
+      cancel = decision === "cancel";
     modal(
-      approve ? "اعتماد المصروف" : "إعادة المصروف للاستكمال",
-      `<form class="form-grid"><div class="summary-banner full"><strong>${esc(e.title)}</strong><span>${cash(e.amount)} ر.س</span></div>${approve ? `<p class="notice full">${e.meta.approvalIndex === 1 ? (e.meta.funding_source === "advance" ? "سيُخصم المبلغ تلقائيًا من العهدة في عملية واحدة مع هذا الاعتماد." : e.meta.funding_source === "direct" ? "سيُثبت المصروف كدفع مباشر موثق." : "سيصبح المبلغ مستحقًا حتى تسجيل السداد وإرفاق إيصال الدفع.") : "ينتقل الطلب بعد موافقتك إلى المعتمد الثاني. لا يُخصم من العهدة في هذه المرحلة."}</p>` : field("سبب الإعادة *", textarea("reason", "", 3, "required"), true)}${actions(approve ? "تأكيد الاعتماد" : "إعادة المصروف")}</form>`,
+      approve
+        ? "اعتماد المصروف"
+        : cancel
+          ? "إلغاء المصروف"
+          : reject
+            ? "رفض المصروف"
+            : "إعادة المصروف للاستكمال",
+      `<form class="form-grid"><div class="summary-banner full"><strong>${esc(e.title)}</strong><span>${cash(e.amount)} ر.س</span></div>${approve ? `<p class="notice full">${e.meta.approvalIndex === 1 ? (e.meta.funding_source === "advance" ? "سيُخصم المبلغ تلقائيًا من العهدة في عملية واحدة مع هذا الاعتماد." : e.meta.funding_source === "direct" ? "سيُثبت المصروف كدفع مباشر موثق." : "سيصبح المبلغ مستحقًا حتى تسجيل السداد وإرفاق إيصال الدفع.") : "ينتقل الطلب بعد موافقتك إلى المعتمد الثاني. لا يُخصم من العهدة في هذه المرحلة."}</p>` : field(cancel ? "سبب الإلغاء *" : reject ? "سبب الرفض *" : "سبب الإعادة *", textarea("reason", "", 3, "required"), true)}${actions(approve ? "تأكيد الاعتماد" : cancel ? "تأكيد الإلغاء" : reject ? "تأكيد الرفض" : "إعادة المصروف")}</form>`,
       async (fd, f) => {
         await api(
-          "expenses/review",
+          cancel ? "expenses/cancel" : "expenses/review",
           {
             id,
             version: e.version,
-            decision: approve ? "approve" : "return",
+            decision,
             reason: fd.get("reason") || "",
           },
           f.dataset.requestKey,
@@ -4197,6 +4246,32 @@
       },
     );
   }
+  let permissionCatalog = null,
+    permissionLoading = false,
+    permissionError = "",
+    permissionKind = "role",
+    permissionId = "";
+  const permissionResources = () =>
+    permissionCatalog?.resource_actions || resourceActions;
+  const permissionName = (r) =>
+    permissionCatalog?.resources?.[r] ||
+    labels[r] ||
+    {
+      "expenses.amount": "قيمة المصروف",
+      "projects.budget": "ميزانية المشروع",
+      "users.phone": "جوال العضو",
+    }[r] ||
+    r;
+  const permissionAction = (a) =>
+    permissionCatalog?.actions?.[a] || actionLabels[a] || a;
+  const basicGrant = (g) =>
+    (g.scope || "all") === "all" &&
+    !g.expires &&
+    !g.assignedOnly &&
+    Object.keys(g).every((k) =>
+      ["resource", "action", "effect", "scope"].includes(k),
+    ) &&
+    permissionResources()[g.resource]?.includes(g.action);
   function ruleRow(
     g = {
       resource: "tasks",
@@ -4204,94 +4279,184 @@
       effect: "allow",
       scope: "project",
     },
-    index = 0,
   ) {
-    return `<tr data-rule-row><td>${select("rule_resource", [["*", "كل الأقسام"], ...Object.keys(resourceActions).map((r) => [r, labels[r]]), ["expenses.amount", "قيمة المصروف"], ["projects.budget", "ميزانية المشروع"], ["users.phone", "جوال العضو"]], g.resource)}</td><td>${select("rule_action", [["*", "كل الإجراءات"], ...(resourceActions[g.resource] || (g.resource.includes(".") ? ["view"] : Object.keys(actionLabels))).map((a) => [a, actionLabels[a]])], g.action)}</td><td>${select(
-      "rule_effect",
-      [
-        ["allow", "سماح"],
-        ["deny", "منع"],
-      ],
-      g.effect,
-    )}</td><td>${select(
-      "rule_scope",
-      [
-        ["all", "كل السجلات"],
-        ["project", "مشروع محدد"],
-        ["committee", "لجنة محددة"],
-        ["assigned", "المسند إليه أو المنشأ بواسطته"],
-      ],
-      g.scope || "all",
-    )}</td><td>${select("rule_project", [["", "اختر المشروع"], ...S.projects.map((p) => [p.id, p.title])], g.projectId || "")}</td><td>${select("rule_committee", [["", "اختر اللجنة"], ...S.committees.map((c) => [c.id, projectName(c.project_id) + " / " + c.name])], g.committeeId || "")}</td><td>${input("rule_expires", g.expires?.slice(0, 10) || "", "date")}</td><td><button type="button" class="icon-btn" data-action="remove-rule" aria-label="حذف القاعدة">${icon("close", 16)}</button></td></tr>`;
+    const resources = [
+      ...new Set([
+        ...Object.keys(permissionCatalog?.resources || permissionResources()),
+        "expenses.amount",
+        "projects.budget",
+        "users.phone",
+        g.resource,
+      ]),
+    ];
+    const acts = [
+      ...new Set([
+        ...(permissionResources()[g.resource] ||
+          (g.resource.includes(".")
+            ? ["view"]
+            : Object.keys(permissionCatalog?.actions || actionLabels))),
+        g.action,
+      ]),
+    ];
+    return `<fieldset class="permission-rule" data-rule-row data-original-rule="${esc(JSON.stringify(g))}"><legend>قاعدة محددة</legend><div class="form-grid">${field("القسم أو الحقل", select("rule_resource", [["*", "كل الأقسام"], ...resources.filter((r) => r !== "*").map((r) => [r, permissionName(r)])], g.resource))}${field("الإجراء", select("rule_action", [["*", "كل الإجراءات"], ...acts.filter((a) => a !== "*").map((a) => [a, permissionAction(a)])], g.action))}${field(
+      "القرار",
+      select(
+        "rule_effect",
+        [
+          ["allow", "سماح"],
+          ["deny", "منع"],
+        ],
+        g.effect,
+      ),
+    )}${field(
+      "النطاق",
+      select(
+        "rule_scope",
+        [
+          ["all", "كل السجلات"],
+          ["project", "مشروع محدد"],
+          ["committee", "لجنة محددة"],
+          ["assigned", "المسند إليه أو المنشأ بواسطته"],
+        ],
+        g.scope || "all",
+      ),
+    )}${field("المشروع", select("rule_project", [["", "اختر المشروع"], ...S.projects.map((p) => [p.id, p.title])], g.projectId || ""))}${field("اللجنة", select("rule_committee", [["", "اختر اللجنة"], ...S.committees.map((c) => [c.id, projectName(c.project_id) + " / " + c.name])], g.committeeId || ""))}${field("حتى نهاية يوم — اختياري", input("rule_expires", g.expires?.slice(0, 10) || "", "date"))}<label class="checkbox-line"><input type="checkbox" name="rule_assigned" ${g.assignedOnly ? "checked" : ""}> المسند إليه فقط داخل اللجنة</label></div><button type="button" class="button button-ghost compact" data-action="remove-rule">إزالة القاعدة</button></fieldset>`;
   }
   function permissionsEditor(grants = []) {
-    const full = grants.some(
-        (g) =>
-          g.resource === "*" &&
-          g.action === "*" &&
-          g.effect === "allow" &&
-          (g.scope || "all") === "all" &&
-          !g.expires,
-      ),
-      base = (g) =>
-        (g.scope || "all") === "all" &&
-        !g.expires &&
-        resourceActions[g.resource]?.includes(g.action),
-      extras = grants.filter(
-        (g) =>
-          !base(g) &&
-          !(
-            g.resource === "*" &&
-            g.action === "*" &&
-            g.effect === "allow" &&
-            (g.scope || "all") === "all" &&
-            !g.expires
-          ),
-      );
-    const cols = [
-      "view",
-      "create",
-      "edit",
-      "assign",
-      "approve",
-      "pay",
-      "export",
-      "archive",
-      "manage",
-    ];
-    return `<section class="full permission-editor"><div class="field-section">مصفوفة الوصول</div><label class="toggle-row"><span><strong>وصول عام مع الاستثناءات أدناه</strong><small>كل الأقسام والإجراءات، وتبقى قواعد المنع الصريحة سارية.</small></span><input type="checkbox" name="full_access" ${full ? "checked" : ""}></label><p class="inherit-note">«افتراضي» يرث الحزم والوصول الكامل. بدون سماح لا يوجد وصول. «منع» يتقدم على أي سماح.</p><div class="table-wrap"><table class="permission-table"><thead><tr><th>القسم</th>${cols.map((c) => `<th>${actionLabels[c]}</th>`).join("")}</tr></thead><tbody>${Object.entries(
-      resourceActions,
+    const extras = grants.filter((g) => !basicGrant(g));
+    return `<section class="full permission-editor"><p class="inherit-note">«افتراضي» يبقي الصلاحيات الموروثة. بدون سماح لا يوجد وصول. المنع الصريح يتقدم على السماح، وتظل قيود الاعتماد المالي سارية.</p><div class="permission-module-grid">${Object.entries(
+      permissionResources(),
     )
       .map(
-        ([r, acts]) =>
-          `<tr><th>${labels[r]}</th>${cols
-            .map((a) =>
-              acts.includes(a)
-                ? `<td><select class="permission-cell" aria-label="${labels[r]}: ${actionLabels[a]}" data-permission-resource="${r}" data-permission-action="${a}">${[
-                    ["", "افتراضي"],
-                    ["allow", "سماح"],
-                    ["deny", "منع"],
-                  ]
-                    .map(([value, label]) => {
-                      const found = grants.filter(
-                          (g) => base(g) && g.resource === r && g.action === a,
-                        ),
-                        v = found.some((g) => g.effect === "deny")
-                          ? "deny"
-                          : found.some((g) => g.effect === "allow")
-                            ? "allow"
-                            : "";
-                      return `<option value="${value}" ${v === value ? "selected" : ""}>${label}</option>`;
-                    })
-                    .join("")}</select></td>`
-                : '<td class="muted">—</td>',
-            )
-            .join("")}</tr>`,
+        ([resource, acts]) =>
+          `<fieldset class="permission-module"><legend>${esc(permissionName(resource))}</legend><div class="permission-action-grid">${acts
+            .map((action) => {
+              const gs = grants.filter(
+                (g) =>
+                  basicGrant(g) &&
+                  g.resource === resource &&
+                  g.action === action,
+              );
+              const value = gs.some((g) => g.effect === "deny")
+                ? "deny"
+                : gs.some((g) => g.effect === "allow")
+                  ? "allow"
+                  : "";
+              return `<label><span>${esc(permissionAction(action))}</span><select aria-label="${esc(permissionName(resource) + ": " + permissionAction(action))}" data-permission-resource="${esc(resource)}" data-permission-action="${esc(action)}">${[
+                ["", "افتراضي"],
+                ["allow", "سماح"],
+                ["deny", "منع"],
+              ]
+                .map(
+                  ([v, l]) =>
+                    `<option value="${v}" ${v === value ? "selected" : ""}>${l}</option>`,
+                )
+                .join("")}</select></label>`;
+            })
+            .join("")}</div></fieldset>`,
       )
       .join(
         "",
-      )}</tbody></table></div><div class="panel-header"><div><h3>استثناءات ونطاقات محددة</h3><span class="muted">مشروع محدد، مهام العضو، صلاحية مؤقتة، أو حجب مبلغ.</span></div><button class="button compact" type="button" data-action="add-rule">${icon("plus", 14)} قاعدة</button></div><div class="table-wrap"><table class="permission-table rules-table"><thead><tr><th>المورد</th><th>الإجراء</th><th>القرار</th><th>النطاق</th><th>المشروع</th><th>اللجنة</th><th>حتى نهاية يوم</th><th></th></tr></thead><tbody id="permissionRules">${extras.map(ruleRow).join("")}</tbody></table></div><div class="notice" id="permissionPreview">تحدد قواعد الوصول الأقسام المتاحة لهذا العضو.</div></section>`;
+      )}</div><div class="panel-header"><div><h3>نطاقات واستثناءات</h3><p class="muted">حدد المشروع أو اللجنة، مدة الصلاحية، أو منع مشاهدة حقل حساس.</p></div><button class="button compact" type="button" data-action="add-rule">${icon("plus", 14)} إضافة قاعدة</button></div><div id="permissionRules" class="permission-rule-list">${extras.map(ruleRow).join("")}</div><div class="notice" id="permissionPreview" aria-live="polite">استخدم معاينة الوصول لمعرفة النتيجة الفعلية من الخادم.</div></section>`;
   }
+  async function loadPermissions() {
+    if (permissionLoading) return;
+    permissionLoading = true;
+    permissionError = "";
+    try {
+      permissionCatalog = await api("permissions");
+    } catch (e) {
+      permissionError = e.message;
+    } finally {
+      permissionLoading = false;
+      if (page === "permissions") render(false);
+    }
+  }
+  function permissionsPage() {
+    const title = heading(
+      "الصلاحيات",
+      "إدارة قوالب الأدوار واستثناءات الأشخاص، مع معاينة الوصول قبل حفظه.",
+    );
+    if (!permissionCatalog) {
+      if (!permissionLoading && !permissionError) void loadPermissions();
+      return (
+        title +
+        `<section class="panel panel-body" role="status">${permissionError ? `${esc(permissionError)} ${btn("إعادة المحاولة", "permissions-reload", "", "", "")}` : "جارٍ تحميل الصلاحيات…"}</section>`
+      );
+    }
+    const targets =
+      permissionKind === "role"
+        ? permissionCatalog.roles
+        : permissionCatalog.users;
+    const target = targets.find((t) => t.id === permissionId) || targets[0];
+    permissionId = target?.id || "";
+    const manage = permissionCatalog.can_manage;
+    return (
+      title +
+      `<section class="permissions-center"><div class="panel panel-body permission-targets"><div class="member-tabs" role="group" aria-label="نوع الصلاحيات">${[
+        ["role", "قوالب الأدوار"],
+        ["user", "استثناءات الأشخاص"],
+      ]
+        .map(
+          ([kind, name]) =>
+            `<button type="button" data-action="permissions-kind" data-kind="${kind}" aria-pressed="${permissionKind === kind}" class="${permissionKind === kind ? "active" : ""}">${name}</button>`,
+        )
+        .join(
+          "",
+        )}</div><div class="form-grid">${field("ابحث بالاسم", input("permission_search", "", "search", 'placeholder="اكتب اسم الشخص أو الدور" autocomplete="off"'))}${field(
+        permissionKind === "role" ? "الدور" : "الشخص",
+        select(
+          "permission_target",
+          targets.map((t) => [t.id, t.name + (t.team ? " · " + t.team : "")]),
+          permissionId,
+        ),
+      )}</div><p data-permission-search-status class="muted" aria-live="polite"></p></div>${target ? `<form id="permissionsForm" class="panel panel-body" data-kind="${permissionKind}" data-target="${esc(target.id)}" data-version="${esc(target.version)}"><header class="permission-target-header"><div><span class="eyebrow">${permissionKind === "role" ? "قالب الدور" : "تخصيص الوصول"}</span><h2>${esc(target.name)}</h2></div><span class="pill">${permissionKind === "role" ? (target.scope === "committee" ? "داخل لجانه فقط" : "نطاق عام") : esc(memberStateLabels[target.status] || target.status || "")}</span></header><p class="notice">${permissionKind === "role" ? (target.scope === "committee" ? "يُطبّق هذا القالب داخل اللجان التي يحمل الشخص فيها الدور فقط. القواعد الافتراضية للدور تبقى موروثة، ويُقدّم المنع الصريح." : "يُطبّق القالب على الأشخاص المرتبطين بهذا الدور. راجع النطاقات قبل توسيع الوصول.") : "هذه قواعد مباشرة للشخص، وتُجمع مع أدواره وعضوياته وحزمه الحالية. المنع الصريح يتقدم على السماح."}</p><fieldset class="permission-edit-fields" ${manage ? "" : "disabled"}>${permissionsEditor(target.grants || [])}</fieldset>${permissionKind === "role" ? field("الشخص الذي تريد معاينة دوره", select("permission_preview_user", [["", "اختر شخصًا للمعاينة"], ...permissionCatalog.users.map((u) => [u.id, u.name])], ""), true) : ""}<div class="form-error" role="alert" hidden></div><div class="permission-save-actions"><button class="button" type="button" data-action="permissions-preview">معاينة الوصول</button>${manage ? '<button class="button button-dark" type="submit">حفظ الصلاحيات</button>' : ""}<button class="button button-ghost" type="button" data-action="permissions-reload">تحميل آخر نسخة</button></div><div id="permissionsServerPreview" aria-live="polite"></div></form>` : empty("لا توجد عناصر متاحة", "ستظهر هنا الأدوار والأشخاص المتاحون للإدارة.")}${permissionKind === "role" && can("users", "manage") ? `<details class="panel panel-body"><summary>حزم الصلاحيات المحفوظة</summary><p class="muted">حزم إضافية مرتبطة بالأشخاص؛ تبقى قواعد المنع الصريحة سارية.</p><div class="permission-bundle-actions">${btn("حزمة جديدة", "bundle-new", "", "", "plus")}${(S.bundles || []).map((b) => btn(esc(b.name), "bundle-edit", b.id, "button-ghost", "edit")).join("")}</div></details>` : ""}</section>`
+    );
+  }
+  function permissionPayload(form) {
+    return {
+      kind: form.dataset.kind,
+      id: form.dataset.target,
+      version: Number(form.dataset.version),
+      grants: readGrants(form),
+    };
+  }
+  function permissionDirty() {
+    return $("#permissionsForm")?.dataset.dirty === "true";
+  }
+  function discardPermissionDraft() {
+    return (
+      !permissionDirty() || confirm("لديك تعديلات غير محفوظة. هل تريد تركها؟")
+    );
+  }
+  async function previewPermissions(form) {
+    const out = form.querySelector("#permissionsServerPreview"),
+      payload = permissionPayload(form);
+    if (payload.kind === "role") {
+      payload.user_id = form.elements.namedItem(
+        "permission_preview_user",
+      ).value;
+      if (!payload.user_id)
+        throw Error("اختر شخصًا لمعاينة أثر الدور على وصوله.");
+    }
+    out.textContent = "جارٍ احتساب الوصول من الخادم…";
+    const fingerprint = JSON.stringify(payload),
+      result = await api("permissions/preview", payload);
+    if (
+      !form.isConnected ||
+      JSON.stringify({
+        ...permissionPayload(form),
+        ...(payload.user_id
+          ? {
+              user_id: form.elements.namedItem("permission_preview_user").value,
+            }
+          : {}),
+      }) !== fingerprint
+    )
+      return;
+    out.innerHTML = `<h3>الوصول الفعلي</h3><div class="permission-preview-grid">${result.access.map((x) => `<article class="permission-module"><h4>${esc(x.name)}</h4><p>${esc(x.scope)}</p><p>${esc(x.actions.join("، "))}</p></article>`).join("") || "<p>لا يوجد وصول ضمن هذه القواعد.</p>"}</div>${result.restrictions?.length ? `<p class="notice">${result.restrictions.map(esc).join("، ")}</p>` : ""}`;
+  }
+
   function readGrants(form) {
     const grants = [];
     if (form.querySelector("[name=full_access]")?.checked)
@@ -4312,15 +4477,27 @@
     });
     form.querySelectorAll("[data-rule-row]").forEach((row) => {
       const v = (n) => row.querySelector(`[name=rule_${n}]`).value,
+        original = JSON.parse(row.dataset.originalRule || "{}"),
         g = {
+          ...original,
           resource: v("resource"),
           action: v("action"),
           effect: v("effect"),
           scope: v("scope"),
         };
+      delete g.projectId;
+      delete g.committeeId;
+      delete g.expires;
       if (g.scope === "project") g.projectId = v("project");
       if (g.scope === "committee") g.committeeId = v("committee");
-      if (v("expires")) g.expires = v("expires") + "T23:59:59+03:00";
+      if (v("expires"))
+        g.expires =
+          original.expires?.slice(0, 10) === v("expires")
+            ? original.expires
+            : v("expires") + "T23:59:59+03:00";
+      if (row.querySelector("[name=rule_assigned]")?.checked)
+        g.assignedOnly = true;
+      else delete g.assignedOnly;
       grants.push(g);
     });
     return grants;
@@ -4356,7 +4533,7 @@
           ),
       )
       .map((r) => labels[r]);
-    $("#permissionPreview").textContent = names.length
+    f.querySelector("#permissionPreview").textContent = names.length
       ? "الأقسام التي يمكن أن تظهر بحسب النطاق: " + names.join("، ")
       : "لا توجد صلاحية مشاهدة. لن تظهر سجلات عمل لهذا العضو.";
   }
@@ -4383,13 +4560,8 @@
       email: fd.get("email"),
       team: fd.get("team"),
       status: fd.get("status"),
-      grants:
-        mode === "full"
-          ? [{ resource: "*", action: "*", effect: "allow", scope: "all" }]
-          : mode === "committee"
-            ? []
-            : readGrants(f),
-      bundles: mode === "custom" ? fd.getAll("bundles") : [],
+      grants: JSON.parse(f.dataset.preservedGrants || "[]"),
+      bundles: JSON.parse(f.dataset.preservedBundles || "[]"),
       memberships: [...f.querySelectorAll("[data-member-link]")].map((row) => ({
         committee_id: row.querySelector("[name=link_committee]").value,
         role: row.querySelector("[name=link_role]").value,
@@ -4455,24 +4627,11 @@
             ? "manager"
             : c.members.find((x) => x.id === id).role,
       }));
-    const isFull =
-      m.grants.length === 1 &&
-      m.grants[0].resource === "*" &&
-      m.grants[0].action === "*" &&
-      m.grants[0].effect === "allow" &&
-      (m.grants[0].scope || "all") === "all" &&
-      !m.grants[0].expires &&
-      !m.bundles.length;
-    const mode = isFull
-      ? "full"
-      : m.grants.length || m.bundles.length
-        ? "custom"
-        : "committee";
     modal(
       m.id
         ? (m.status === "pending" ? "مراجعة طلب " : "وصول ") + m.name
         : "إضافة عضو للديوان",
-      `<form id="memberForm" class="member-wizard" data-step="0" data-member-id="${esc(m.id || "")}">
+      `<form id="memberForm" class="member-wizard" data-step="0" data-member-id="${esc(m.id || "")}" data-preserved-grants="${esc(JSON.stringify(m.grants))}" data-preserved-bundles="${esc(JSON.stringify(m.bundles))}">
       <div class="member-stepper">${["بيانات الحساب", "اللجان والصلاحيات", "مراجعة واعتماد"].map((x, i) => `<span data-member-step-link="${i}" class="${i === 0 ? "active" : ""}"><b>${i + 1}</b>${x}</span>`).join("")}</div>
       <section data-member-step="0" class="form-grid"><div class="full"><h3>بيانات المستخدم</h3><p class="muted">رقم الجوال هو مفتاح حساب العضو. المسمى للتعريف به، والصلاحيات تحددها في الخطوة التالية.</p></div>${field("الاسم *", input("name", m.name || "", "text", "required"))}${field("رقم الجوال *", input("phone", m.phone || "", "tel", 'required dir="ltr" placeholder="+9665XXXXXXXX" pattern="\\+[1-9][0-9]{7,14}"'))}${field("المسمى — اختياري", input("team", m.team || "", "text", 'placeholder="مشرف عام، متابعة مالية…"'))}${field("البريد — اختياري", input("email", m.email || "", "email", 'dir="ltr"'))}${field(
         "قرار الحساب",
@@ -4488,43 +4647,9 @@
         ),
         true,
       )}<p class="form-note full">${m.id ? "يمكنك تعديل الصلاحيات أو إيقاف الوصول لاحقًا من ملف العضو." : "إذا اخترت اعتماد الحساب الآن، يدخل العضو بعد توثيق الرقم نفسه. اختيار «تجهيز الحساب» يبقيه بانتظار موافقتك."}</p></section>
-      <section data-member-step="1" class="form-grid" hidden><div class="full"><h3>ماذا يستطيع أن يرى وينجز؟</h3><p class="muted">اختر طريقة الوصول، ثم اربطه باللجان التي يعمل معها.</p></div><div class="access-mode-options full">${[
-        [
-          "committee",
-          "حسب عضويته في اللجان",
-          "يأخذ صلاحيات الدور داخل كل لجنة فقط.",
-        ],
-        [
-          "full",
-          "كامل صلاحيات المنصة",
-          "جميع المشاريع واللجان والأعضاء والمصاريف والإعدادات.",
-        ],
-        [
-          "custom",
-          "صلاحيات أخصصها بنفسي",
-          "أقسام وإجراءات محددة، مع نطاقات واستثناءات.",
-        ],
-      ]
-        .map(
-          ([v, t, h]) =>
-            `<label><input type="radio" name="access_mode" value="${v}" ${v === mode ? "checked" : ""}><span><strong>${t}</strong><small>${h}</small></span></label>`,
-        )
-        .join("")}</div>
-      <div class="full access-full-note" ${mode === "full" ? "" : "hidden"}><strong>وصول شامل إلى المنصة</strong><p>يشمل إدارة الأعضاء ومنح الصلاحيات وتسجيل السداد. هذا الاختيار يستبدل التخصيص السابق بوصول كامل، مع بقاء تسلسل الاعتمادين ومنع اعتماد الشخص لمصروفه.</p></div>
+      <section data-member-step="1" class="form-grid" hidden><input type="hidden" name="access_mode" value="custom"><p class="notice full">صلاحيات العضوية تأتي من صفة العضو في اللجنة. لتعديل الوصول العام أو الاستثناءات، احفظ الحساب ثم افتح مركز الصلاحيات.</p>
       <div class="full"><h3>اللجان التي يعمل معها</h3><p class="muted">عضوية اللجنة تحدد مسؤوليات العمل. يمكن تركها فارغة لمن لديه وصول عام.</p></div><div class="full" id="memberCommittees">${links.map(memberLinkRow).join("")}</div><button type="button" class="button full" data-action="member-link-add">+ ربط بلجنة</button><div class="role-explainer full"><span><strong>عضو اللجنة</strong>مهامه ومصاريفه.</span><span><strong>مدير اللجنة</strong>متابعة مهام اللجنة واعتماد الإنجاز والموافقة الأولى للمصاريف.</span><span><strong>مشرف متابعة</strong>الاطلاع على عمل اللجنة ومصاريفه الشخصية.</span></div>
-      <div id="memberCustom" class="full" ${mode === "custom" ? "" : "hidden"}>${
-        S.bundles.length
-          ? field(
-              "حزم محفوظة — اختياري",
-              multi(
-                "bundles",
-                S.bundles.map((b) => [b.id, b.name]),
-                m.bundles,
-              ),
-              true,
-            )
-          : ""
-      }<div class="permission-shortcuts"><strong>تجهيز معتمد المصروفات الثاني</strong><p>امنحه صلاحية الاعتماد هنا، ثم اختره في إعدادات اللجنة. يمكن اختيار الشخص نفسه لعدة لجان.</p>${select("approver_scope", [["", "اختر نطاق الاعتماد"], ...S.projects.map((p) => ["project:" + p.id, p.title + " · كل اللجان"]), ...S.committees.map((c) => ["committee:" + c.id, projectName(c.project_id) + " / " + c.name])], "")}<button type="button" class="button compact" data-action="grant-approver">إضافة صلاحية الاعتماد</button></div>${permissionsEditor(m.grants)}</div></section>
+      <div class="full"><button type="button" class="button" data-action="permissions-open" data-id="${esc(m.id || "")}">فتح مركز الصلاحيات</button></div></section>
       <section data-member-step="2" hidden><h3>راجع الوصول قبل حفظه</h3><div id="memberReview"></div></section><div class="form-error" role="alert" hidden></div><div class="member-wizard-actions"><button type="button" class="button button-ghost" data-action="close-modal">إلغاء</button><button type="button" class="button" id="memberBack" data-action="member-back" hidden>السابق</button><button type="button" class="button button-dark" id="memberNext" data-action="member-next">التالي</button><button type="submit" class="button button-dark" id="memberSave" hidden>حفظ الوصول</button></div></form>`,
       async (fd, f) => {
         if (f.dataset.step !== "2")
@@ -5931,10 +6056,16 @@
         expenseDetail(id);
         break;
       case "expense-approve":
-        reviewExpense(id, true);
+        reviewExpense(id, "approve");
         break;
       case "expense-return":
-        reviewExpense(id, false);
+        reviewExpense(id, "return");
+        break;
+      case "expense-reject":
+        reviewExpense(id, "reject");
+        break;
+      case "expense-cancel":
+        reviewExpense(id, "cancel");
         break;
       case "expense-pay":
         paymentForm(id);
@@ -5986,13 +6117,59 @@
         bundleForm(id);
         break;
       case "add-rule":
-        $("#permissionRules").insertAdjacentHTML("beforeend", ruleRow());
+        el.closest("form")
+          .querySelector("#permissionRules")
+          .insertAdjacentHTML("beforeend", ruleRow());
+        if (el.closest("#permissionsForm"))
+          $("#permissionsForm").dataset.dirty = "true";
         updatePermissionPreview();
         break;
       case "remove-rule":
-        el.closest("tr").remove();
+        if (el.closest("#permissionsForm"))
+          $("#permissionsForm").dataset.dirty = "true";
+        el.closest("[data-rule-row]").remove();
         updatePermissionPreview();
         break;
+      case "permissions-open":
+        if (
+          $("#modal").open &&
+          !confirm(
+            "احفظ بيانات النموذج أولًا إذا أردت الاحتفاظ بتعديلاتها. هل تريد فتح الصلاحيات الآن؟",
+          )
+        )
+          return;
+        $("#modal").close();
+        permissionKind = id ? "user" : "role";
+        permissionId = id || "";
+        navigate("permissions");
+        break;
+      case "permissions-kind":
+        if (!discardPermissionDraft()) return;
+        permissionKind = el.dataset.kind;
+        permissionId = "";
+        render(false);
+        break;
+      case "permissions-reload":
+        if (!discardPermissionDraft()) return;
+        permissionCatalog = null;
+        permissionError = "";
+        render(false);
+        break;
+      case "permissions-preview": {
+        const f = $("#permissionsForm"),
+          error = f.querySelector(".form-error");
+        el.disabled = true;
+        error.hidden = true;
+        try {
+          await previewPermissions(f);
+        } catch (e) {
+          error.textContent = e.message;
+          error.hidden = false;
+        } finally {
+          el.disabled = false;
+        }
+        break;
+      }
       case "settings-tab":
         selectedSettings = el.dataset.tab;
         render();
@@ -6141,6 +6318,20 @@
   document.addEventListener("change", async (ev) => {
     const el = ev.target;
     try {
+      if (el.name === "permission_target") {
+        if (!discardPermissionDraft()) {
+          el.value = permissionId;
+          return;
+        }
+        permissionId = el.value;
+        render(false);
+        return;
+      }
+      if (el.closest("#permissionsForm")) {
+        el.closest("form").dataset.dirty = "true";
+        $("#permissionsServerPreview").textContent =
+          "تغيّرت القواعد؛ أعد المعاينة قبل الاعتماد على النتيجة.";
+      }
       if (el.dataset.taskStatus)
         await saveTaskStatus(
           S.tasks.find((t) => t.id === el.dataset.taskStatus),
@@ -6171,17 +6362,6 @@
         row.querySelector("[data-membership-title]").hidden = !custom;
         title.disabled = !custom;
         title.required = custom;
-        const grants = membershipPreset(el.value);
-        for (const control of row.querySelectorAll("[data-perm-action]"))
-          control.value =
-            grants.find(
-              (g) =>
-                g.resource === control.dataset.resource &&
-                g.action === control.dataset.permAction,
-            )?.effect || "";
-        row.querySelector("[name=membership_assigned]").checked = grants.some(
-          (g) => g.assignedOnly,
-        );
         if (custom) title.focus({ preventScroll: true });
       }
       if (el.dataset.filter && el.dataset.filter !== "q") {
@@ -6189,14 +6369,21 @@
         render();
       }
       if (el.name === "rule_resource") {
-        const action = el.closest("tr").querySelector("[name=rule_action]"),
+        const action = el
+            .closest("[data-rule-row]")
+            .querySelector("[name=rule_action]"),
           options =
-            resourceActions[el.value] ||
-            (el.value.includes(".") ? ["view"] : Object.keys(actionLabels));
+            permissionResources()[el.value] ||
+            (el.value.includes(".")
+              ? ["view"]
+              : Object.keys(permissionCatalog?.actions || actionLabels));
         action.innerHTML =
           '<option value="*">كل الإجراءات</option>' +
           options
-            .map((a) => `<option value="${a}">${actionLabels[a]}</option>`)
+            .map(
+              (a) =>
+                `<option value="${esc(a)}">${esc(permissionAction(a))}</option>`,
+            )
             .join("");
         updatePermissionPreview();
       }
@@ -6254,6 +6441,57 @@
         n?.focus();
         n?.setSelectionRange(at, at);
       }, 250);
+    }
+  });
+  document.addEventListener("input", (e) => {
+    const el = e.target;
+    if (el.name === "permission_search") {
+      const select = $("[name=permission_target]"),
+        targets =
+          permissionKind === "role"
+            ? permissionCatalog.roles
+            : permissionCatalog.users;
+      const matches = targets.filter((t) =>
+        (t.name + " " + (t.team || "")).includes(el.value.trim()),
+      );
+      const shown = targets.filter(
+        (t) => t.id === permissionId || matches.includes(t),
+      );
+      select.innerHTML = shown
+        .map(
+          (t) =>
+            `<option value="${esc(t.id)}" ${t.id === permissionId ? "selected" : ""}>${esc(t.name + (t.team ? " · " + t.team : ""))}</option>`,
+        )
+        .join("");
+      $("[data-permission-search-status]").textContent =
+        `${matches.length} نتيجة؛ يبقى الاختيار الحالي محفوظًا.`;
+    }
+    if (el.closest("#permissionsForm"))
+      el.closest("form").dataset.dirty = "true";
+  });
+  document.addEventListener("submit", async (e) => {
+    if (e.target.id !== "permissionsForm") return;
+    e.preventDefault();
+    const form = e.target,
+      button = form.querySelector("[type=submit]"),
+      error = form.querySelector(".form-error");
+    if (!button || button.disabled || !form.reportValidity()) return;
+    button.disabled = true;
+    error.hidden = true;
+    try {
+      await api("permissions/save", permissionPayload(form));
+      form.dataset.dirty = "false";
+      toast("حُفظت الصلاحيات. تم تحديث الوصول الفعلي.");
+      permissionCatalog = null;
+      await refresh(false);
+      if (page === "permissions") await loadPermissions();
+    } catch (e) {
+      error.textContent =
+        e.message +
+        " بقيت تعديلاتك في النموذج. عند تعارض النسخة، حمّل آخر نسخة وراجع التغييرات.";
+      error.hidden = false;
+    } finally {
+      if (form.isConnected) button.disabled = false;
     }
   });
   document.addEventListener("submit", async (e) => {
