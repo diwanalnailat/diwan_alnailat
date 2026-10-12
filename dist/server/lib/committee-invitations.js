@@ -64,6 +64,7 @@ export async function managerInvitation(
   );
   const title =
     role?.title ||
+    role?.notices?.[0]?.title ||
     `تم تعيينك مديرًا للجنة ${committee.name} في مشروع ${project.title}`;
   const db = env.DB;
   return {
@@ -86,34 +87,32 @@ export async function managerInvitation(
           invite.expires,
           created,
         ),
-      db
-        .prepare("INSERT INTO nl_notifications VALUES(?,?,?,?,?,?,?,?,?,?)")
-        .bind(
-          invite.id,
-          member.id,
-          title,
-          role?.body || "يرجى زيارة المنصة للاطلاع على مهامك الموكلة إليك.",
-          role?.resource || "committees",
-          role?.entityId || committee.id,
-          project?.id || null,
-          "whatsapp",
-          "queued",
-          new Date(created).toISOString(),
-        ),
-      db
-        .prepare("INSERT INTO nl_notifications VALUES(?,?,?,?,?,?,?,?,?,?)")
-        .bind(
-          crypto.randomUUID(),
-          member.id,
-          title,
-          role?.body || "يرجى زيارة المنصة للاطلاع على مهامك الموكلة إليك.",
-          role?.resource || "committees",
-          role?.entityId || committee.id,
-          project?.id || null,
-          "in_app",
-          "unread",
-          new Date(created).toISOString(),
-        ),
+      ...(role?.notices || [{ title, body: role?.body }]).flatMap(
+        (notice, index) =>
+          ["whatsapp", "in_app"].map((channel) =>
+            db
+              .prepare(
+                "INSERT INTO nl_notifications VALUES(?,?,?,?,?,?,?,?,?,?)",
+              )
+              .bind(
+                channel === "in_app"
+                  ? crypto.randomUUID()
+                  : index === 0
+                    ? invite.id
+                    : `${invite.id}:role:${notice.role}`,
+                member.id,
+                notice.title,
+                notice.body ||
+                  "يرجى زيارة المنصة للاطلاع على مهامك الموكلة إليك.",
+                role?.resource || "committees",
+                role?.entityId || committee.id,
+                project?.id || null,
+                channel,
+                channel === "whatsapp" ? "queued" : "unread",
+                new Date(created).toISOString(),
+              ),
+          ),
+      ),
     ],
   };
 }

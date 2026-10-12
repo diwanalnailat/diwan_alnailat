@@ -59,7 +59,13 @@ test("verified applications stay private until referral; decisions create login-
     consent: true,
   };
   try {
-    for (const id of ["admin", "supervisor-a", "supervisor-b", "outsider"])
+    for (const id of [
+      "admin",
+      "manager-a",
+      "manager-b",
+      "standalone-supervisor",
+      "outsider",
+    ])
       await DB.prepare(
         "INSERT INTO nl_members(id,site_id,name,email,phone,status,grants,verified,created) VALUES(?,?,?,?,?,'active',?,1,?)",
       )
@@ -88,17 +94,21 @@ test("verified applications stay private until referral; decisions create login-
     )
       .bind(new Date().toISOString())
       .run();
-    for (const [id, supervisor] of [
-      ["committee-a", "supervisor-a"],
-      ["committee-b", "supervisor-b"],
+    for (const [id, manager] of [
+      ["committee-a", "manager-a"],
+      ["committee-b", "manager-b"],
     ])
       await DB.prepare(
-        "INSERT INTO nl_committees(id,project_id,name,members,statuses,created_by,created) VALUES(?,'project',?,?,'[]','admin',?)",
+        "INSERT INTO nl_committees(id,project_id,name,manager_id,members,statuses,created_by,created) VALUES(?,'project',?,?,?,'[]','admin',?)",
       )
         .bind(
           id,
           id,
-          JSON.stringify([{ id: supervisor, role: "supervisor", grants: [] }]),
+          manager,
+          JSON.stringify([
+            { id: manager, role: "member", grants: [] },
+            { id: "standalone-supervisor", role: "supervisor", grants: [] },
+          ]),
           new Date().toISOString(),
         )
         .run();
@@ -158,13 +168,22 @@ test("verified applications stay private until referral; decisions create login-
     assert.equal(list.length, 1);
     let application = list[0];
     assert.equal(application.phone, "+966500000001");
+    const routing = (await api("join-requests", "admin")).data.supervisors;
+    assert.deepEqual(
+      routing.filter((m) => m.committee_id === "committee-a").map((m) => m.id),
+      ["manager-a"],
+    );
     assert.equal(
-      (await api("join-requests", "supervisor-a")).data.requests.length,
+      (await api("state", "standalone-supervisor")).data.join_requests_access,
+      false,
+    );
+    assert.equal(
+      (await api("join-requests", "manager-a")).data.requests.length,
       0,
     );
     assert.equal(
       (
-        await api("join-requests/decide", "supervisor-a", {
+        await api("join-requests/decide", "manager-a", {
           id: application.id,
           version: application.version,
           decision: "approve",
@@ -177,10 +196,21 @@ test("verified applications stay private until referral; decisions create login-
         await api("join-requests/forward", "admin", {
           id: application.id,
           version: application.version,
-          supervisor_id: "supervisor-b",
+          supervisor_id: "manager-b",
         })
       ).status,
       400,
+    );
+    assert.equal(
+      (
+        await api("join-requests/forward", "admin", {
+          id: application.id,
+          version: application.version,
+          supervisor_id: "standalone-supervisor",
+        })
+      ).status,
+      400,
+      "a same-committee legacy supervisor cannot replace the manager",
     );
     const beforeNotice = messages.length;
     assert.equal((await dispatchNotifications(env)).accepted, 1);
@@ -196,23 +226,31 @@ test("verified applications stay private until referral; decisions create login-
         await api("join-requests/forward", "admin", {
           id: application.id,
           version: application.version,
-          supervisor_id: "supervisor-a",
         })
       ).status,
       200,
     );
-    application = (await api("join-requests", "supervisor-a")).data.requests[0];
+    application = (await api("join-requests", "manager-a")).data.requests[0];
     assert.equal(application.can_decide, true);
     assert.equal(
-      (await api("join-requests", "supervisor-b")).data.requests.length,
+      (await api("join-requests", "manager-b")).data.requests.length,
       0,
     );
+    // A legacy supervisor label is not a referral authority, even if a stale
+    // database row had been assigned to that person before the migration.
     await DB.prepare(
-      "UPDATE nl_committees SET members='[]',version=version+1 WHERE id='committee-a'",
-    ).run();
+      "UPDATE nl_join_requests SET assigned_to='standalone-supervisor' WHERE id=?",
+    )
+      .bind(application.id)
+      .run();
+    assert.equal(
+      (await api("join-requests", "standalone-supervisor")).data.requests
+        .length,
+      0,
+    );
     assert.equal(
       (
-        await api("join-requests/decide", "supervisor-a", {
+        await api("join-requests/decide", "standalone-supervisor", {
           id: application.id,
           version: application.version,
           decision: "approve",
@@ -221,15 +259,99 @@ test("verified applications stay private until referral; decisions create login-
       404,
     );
     await DB.prepare(
-      "UPDATE nl_committees SET members=?,version=version+1 WHERE id='committee-a'",
+      "UPDATE nl_join_requests SET assigned_to='manager-a' WHERE id=?",
+    )
+      .bind(application.id)
+      .run();
+    // Assignment and current leadership must both match. Changing the manager
+    // cannot expose the old referral to either person until an admin re-refers it.
+    await DB.prepare(
+      "UPDATE nl_committees SET manager_id='manager-b',members=?,version=version+1 WHERE id='committee-a'",
     )
       .bind(
         JSON.stringify([
-          { id: "supervisor-a", role: "supervisor", grants: [] },
+          { id: "manager-a", role: "supervisor", grants: [] },
+          { id: "manager-b", role: "member", grants: [] },
         ]),
       )
       .run();
-    const decision = await api("join-requests/decide", "supervisor-a", {
+    for (const actor of ["manager-a", "manager-b"])
+      assert.equal(
+        (
+          await api("join-requests/decide", actor, {
+            id: application.id,
+            version: application.version,
+            decision: "approve",
+          })
+        ).status,
+        404,
+      );
+    assert.equal(
+      (
+        await api("join-requests/forward", "admin", {
+          id: application.id,
+          version: application.version,
+        })
+      ).status,
+      200,
+    );
+    application = (await api("join-requests", "manager-b")).data.requests[0];
+    assert.equal(application.assigned_to, "manager-b");
+    assert.equal(
+      (await api("join-requests", "manager-a")).data.requests.length,
+      0,
+    );
+    // Deny overrides derived manager authority; expired deny no longer applies.
+    await DB.prepare("UPDATE nl_members SET grants=? WHERE id='manager-b'")
+      .bind(
+        JSON.stringify([
+          {
+            resource: "join_requests",
+            action: "approve",
+            effect: "deny",
+            scope: "all",
+          },
+        ]),
+      )
+      .run();
+    assert.equal(
+      (
+        await api("join-requests/decide", "manager-b", {
+          id: application.id,
+          version: application.version,
+          decision: "approve",
+        })
+      ).status,
+      403,
+    );
+    assert.equal(
+      await DB.prepare(
+        "SELECT id FROM nl_members WHERE phone='+966500000001'",
+      ).first(),
+      null,
+    );
+    assert.equal(
+      (
+        await DB.prepare("SELECT status FROM nl_join_requests WHERE id=?")
+          .bind(application.id)
+          .first()
+      ).status,
+      "referred",
+    );
+    await DB.prepare("UPDATE nl_members SET grants=? WHERE id='manager-b'")
+      .bind(
+        JSON.stringify([
+          {
+            resource: "join_requests",
+            action: "approve",
+            effect: "deny",
+            scope: "all",
+            expires: "2000-01-01T00:00:00Z",
+          },
+        ]),
+      )
+      .run();
+    const decision = await api("join-requests/decide", "manager-b", {
       id: application.id,
       version: application.version,
       decision: "approve",
@@ -252,7 +374,7 @@ test("verified applications stay private until referral; decisions create login-
     );
     assert.equal(
       (
-        await api("join-requests/decide", "supervisor-a", {
+        await api("join-requests/decide", "manager-b", {
           id: application.id,
           version: application.version,
           decision: "approve",
@@ -281,7 +403,7 @@ test("verified applications stay private until referral; decisions create login-
       true,
     );
     assert.equal((await api("state", member.id)).status, 200);
-    // Direct Diwan requests are never routed to a committee supervisor.
+    // Direct Diwan requests are never routed to a committee manager.
     const direct = await joinPublicEndpoint(
       req({ ...payload, phone: "0500000002", committee_id: null }),
       env,
@@ -307,7 +429,6 @@ test("verified applications stay private until referral; decisions create login-
         await api("join-requests/forward", "admin", {
           id: dr.id,
           version: dr.version,
-          supervisor_id: "supervisor-a",
         })
       ).status,
       400,
@@ -331,7 +452,7 @@ test("verified applications stay private until referral; decisions create login-
     // Terms are versioned, with consent checked again before final submission.
     assert.equal(
       (
-        await api("join-policy/save", "supervisor-a", {
+        await api("join-policy/save", "manager-a", {
           title: "Terms",
           content: "Updated policy",
           version: 0,

@@ -29,13 +29,7 @@ export async function joinPolicy(db) {
 }
 export const isJoinAdmin = (c) => c.can("users", "manage");
 export function isCommitteeSupervisor(committee, memberId) {
-  return (
-    !!committee &&
-    (committee.manager_id === memberId ||
-      parse(committee.members, []).some(
-        (m) => m.id === memberId && ["manager", "supervisor"].includes(m.role),
-      ))
-  );
+  return !!committee && committee.manager_id === memberId;
 }
 export function mayReadJoin(c, row, action = "view") {
   const admin = isJoinAdmin(c);
@@ -147,6 +141,14 @@ export async function joinDashboard(db, c) {
       committee_name:
         c.committees.find((k) => k.id === r.committee_id)?.name || null,
       assigned_name: people.find((m) => m.id === r.assigned_to)?.name || null,
+      manager_id:
+        c.committees.find((k) => k.id === r.committee_id)?.manager_id || null,
+      manager_name:
+        people.find(
+          (m) =>
+            m.id ===
+            c.committees.find((k) => k.id === r.committee_id)?.manager_id,
+        )?.name || null,
       can_decide:
         ["pending", "referred"].includes(r.status) &&
         mayReadJoin(c, r, "approve"),
@@ -208,12 +210,13 @@ export async function reviewJoin(db, c, b, action) {
   if (action === "forward") {
     if (!isJoinAdmin(c) || !mayReadJoin(c, r, "manage"))
       fail("توجيه الطلب متاح للإدارة فقط", 403);
-    const target =
-      db.inline?.records.get("users:" + b.supervisor_id) ||
-      (await db
-        .prepare("SELECT * FROM nl_members WHERE id=? AND status='active'")
-        .bind(string(b.supervisor_id, 100))
-        .first());
+    if (!k?.manager_id) fail("حدد مدير اللجنة قبل إحالة طلب الانضمام");
+    if (b.supervisor_id && b.supervisor_id !== k.manager_id)
+      fail("طلبات الانضمام المحالة من مسؤولية مدير اللجنة");
+    const target = await db
+      .prepare("SELECT * FROM nl_members WHERE id=? AND status='active'")
+      .bind(k.manager_id)
+      .first();
     if (
       !k ||
       !target ||
@@ -226,7 +229,7 @@ export async function reviewJoin(db, c, b, action) {
         c.bundles,
       )
     )
-      fail("اختر مشرفًا نشطًا من اللجنة نفسها");
+      fail("مدير اللجنة غير متاح لاستقبال الطلب؛ راجع حسابه وصلاحياته");
     statements.push(
       db
         .prepare(

@@ -10,6 +10,8 @@ import {
 } from "./support.mjs";
 import { dispatchNotifications } from "../worker.js";
 import { loginEndpoint, sessionMember } from "../lib/login.js";
+import { permitted, withCommittees } from "../lib/domain.js";
+import { personInvitationEligible } from "../lib/person-invitations.js";
 
 process.env.DIWAN_TEST_DATABASE = "postgres";
 
@@ -534,50 +536,18 @@ test("inline proposed guide owner remains a proposal and failed delivery never d
   );
 });
 
-test("inline referral creates a scoped supervisor and revoking supervision invalidates the invitation", async () => {
-  const a = await fixture(),
-    messages = configure(a),
-    supervisor = person(15);
-  const application = crypto.randomUUID(),
-    timestamp = new Date().toISOString();
-  await a.DB.prepare(
-    "INSERT INTO nl_join_requests(id,name,phone,reason,committee_id,status,policy_version,policy_snapshot,consent_at,verified_at,created,updated) VALUES(?,?,?,?,?,'pending',0,'{}',?,?,?,?)",
-  )
-    .bind(
-      application,
-      "متقدم تجريبي",
-      "+966500000090",
-      "المشاركة في التجهيز",
-      a.cid,
-      timestamp,
-      timestamp,
-      timestamp,
-      timestamp,
-    )
-    .run();
+test("referrals cannot stage an arbitrary new supervisor", async () => {
+  const a = await fixture();
+  configure(a);
+  const supervisor = person(15);
   const saved = await a.req("join-requests/forward", {
-    id: application,
+    id: crypto.randomUUID(),
     version: 1,
     supervisor_id: supervisor.token,
     inline_people: [supervisor],
   });
-  ok(saved);
-  const id = saved.data.inline_people_resolved[supervisor.token];
-  assert.equal((await row(a, "nl_join_requests", application)).assigned_to, id);
-  const committee = await row(a, "nl_committees", a.cid);
-  const members = JSON.parse(committee.members);
-  assert.equal(members.find((m) => m.id === id).role, "supervisor");
-  assert.equal((await row(a, "nl_members", id)).grants, "[]");
-  await dispatchNotifications(a.env);
-  assert.equal(messages.length, 1);
-  const code = messages[0].message.match(/\b[A-F0-9]{12}\b/)[0];
-  members.find((m) => m.id === id).role = "member";
-  await a.DB.prepare(
-    "UPDATE nl_committees SET members=?,version=version+1 WHERE id=?",
-  )
-    .bind(JSON.stringify(members), committee.id)
-    .run();
-  assert.equal((await login(a, supervisor.phone, code)).status, 400);
+  assert.equal(saved.status, 400);
+  assert.equal(await memberByPhone(a, "+966500000015"), null);
 });
 
 test("inline reuse respects suspended accounts, opt-outs and grant delegation boundaries", async () => {
@@ -668,33 +638,16 @@ test("inline subtask creation reserves a new ID and preserves its parent", async
   assert.equal(messages.length, 1);
 });
 
-test("closing a referral project invalidates sent passwords and stops queued invitations", async () => {
+test("closing a committee project invalidates sent passwords and stops queued invitations", async () => {
   const a = await fixture(),
     messages = configure(a),
-    supervisors = [person(19), person(20)];
-  for (const [index, supervisor] of supervisors.entries()) {
-    const application = crypto.randomUUID(),
-      timestamp = new Date().toISOString();
-    await a.DB.prepare(
-      "INSERT INTO nl_join_requests(id,name,phone,reason,committee_id,status,policy_version,policy_snapshot,consent_at,verified_at,created,updated) VALUES(?,?,?,?,?,'pending',0,'{}',?,?,?,?)",
-    )
-      .bind(
-        application,
-        "متقدم اختبار الإغلاق",
-        "+96650000009" + index,
-        "المشاركة",
-        a.cid,
-        timestamp,
-        timestamp,
-        timestamp,
-        timestamp,
-      )
-      .run();
-    const saved = await a.req("join-requests/forward", {
-      id: application,
-      version: 1,
-      supervisor_id: supervisor.token,
-      inline_people: [supervisor],
+    members = [person(19), person(20)];
+  for (const [index, member] of members.entries()) {
+    const saved = await a.req("committees/save", {
+      project_id: a.pid,
+      name: "Closure test " + index,
+      members: [{ id: member.token, role: "supervisor", grants: [] }],
+      inline_people: [member],
     });
     ok(saved);
     if (index === 0) {
@@ -708,13 +661,9 @@ test("closing a referral project invalidates sent passwords and stops queued inv
   )
     .bind(a.pid)
     .run();
-  assert.equal((await login(a, supervisors[0].phone, code)).status, 400);
+  assert.equal((await login(a, members[0].phone, code)).status, 400);
   await dispatchNotifications(a.env);
-  assert.equal(
-    messages.length,
-    1,
-    "queued referral cannot notify a supervisor of a closed project",
-  );
+  assert.equal(messages.length, 1);
 });
 
 test("custody invitation login enforces explicit denies, project closure and outstanding asset custody", async () => {
@@ -818,27 +767,10 @@ test("custody invitation login enforces explicit denies, project closure and out
   );
 });
 
-test("concurrent identical inline referrals return the one committed mapping", async () => {
+test("concurrent identical inline committees return the one committed mapping", async () => {
   const a = await fixture(),
     messages = configure(a),
     supervisor = person(23);
-  const application = crypto.randomUUID(),
-    timestamp = new Date().toISOString();
-  await a.DB.prepare(
-    "INSERT INTO nl_join_requests(id,name,phone,reason,committee_id,status,policy_version,policy_snapshot,consent_at,verified_at,created,updated) VALUES(?,?,?,?,?,'pending',0,'{}',?,?,?,?)",
-  )
-    .bind(
-      application,
-      "متقدم اختبار التزامن",
-      "+966500000099",
-      "المشاركة",
-      a.cid,
-      timestamp,
-      timestamp,
-      timestamp,
-      timestamp,
-    )
-    .run();
   // Hold both business batches after preflight to exercise replay in the commit
   // race, rather than merely hitting the early cached-receipt fast path.
   const sources = new WeakMap();
@@ -874,14 +806,14 @@ test("concurrent identical inline referrals return the one committed mapping", a
     },
   };
   const body = {
-    id: application,
-    version: 1,
-    supervisor_id: supervisor.token,
+    project_id: a.pid,
+    name: "Concurrent committee",
+    members: [{ id: supervisor.token, role: "supervisor", grants: [] }],
     inline_people: [supervisor],
   };
   const results = await Promise.all(
     [1, 2].map(() =>
-      a.req("join-requests/forward", body, owner, {
+      a.req("committees/save", body, owner, {
         key: "inline-referral-race",
       }),
     ),
@@ -895,7 +827,8 @@ test("concurrent identical inline referrals return the one committed mapping", a
     member.id,
   );
   assert.equal(
-    (await row(a, "nl_join_requests", application)).assigned_to,
+    JSON.parse((await row(a, "nl_committees", results[0].data.id)).members)[0]
+      .id,
     member.id,
   );
   assert.equal(
@@ -916,4 +849,284 @@ test("concurrent identical inline referrals return the one committed mapping", a
   );
   await dispatchNotifications(a.env);
   assert.equal(messages.length, 1);
+});
+
+test("leadership plus explicit custom membership preserves both roles and sends distinct notices with one credential", async () => {
+  for (const [index, field] of [
+    "manager_id",
+    "second_approver_id",
+    "review_delegate_id",
+  ].entries()) {
+    const a = await app(),
+      messages = configure(a),
+      pid = await addProject(a),
+      added = person(30 + index);
+    const title = "منسق الضيافة والموقع";
+    const body = {
+      project_id: pid,
+      name: "لجنة الأدوار المتعددة",
+      [field]: added.token,
+      members: [
+        {
+          id: added.token,
+          role: "member",
+          title,
+          grants: [{ resource: "tasks", action: "export", effect: "deny" }],
+        },
+      ],
+      inline_people: [added],
+    };
+    const saved = await a.req("committees/save", body, owner, {
+      key: "two-roles-" + field,
+    });
+    ok(saved);
+    const memberId = saved.data.inline_people_resolved[added.token],
+      member = await row(a, "nl_members", memberId);
+    const committee = await row(a, "nl_committees", saved.data.id),
+      memberships = JSON.parse(committee.members);
+    assert.equal(memberships.length, 1);
+    assert.equal(memberships[0].role, "member");
+    assert.equal(memberships[0].title, title);
+    assert.equal(member.grants, "[]");
+    assert.equal(member.bundles, "[]");
+    const recipient = withCommittees(member, [committee]);
+    const expense = {
+      project_id: pid,
+      committee_id: committee.id,
+      created_by: "another-person",
+    };
+    const task = {
+      project_id: pid,
+      assignee_id: memberId,
+      meta: JSON.stringify({ committee_id: committee.id }),
+    };
+    assert.equal(
+      permitted(recipient, "expenses", "approve", expense, []),
+      true,
+    );
+    assert.equal(permitted(recipient, "tasks", "edit", task, []), true);
+    assert.equal(
+      permitted(recipient, "tasks", "export", task, []),
+      false,
+      "explicit deny survives grant union",
+    );
+    const notices = (
+      await a.DB.prepare(
+        "SELECT * FROM nl_notifications WHERE member_id=? AND channel='whatsapp'",
+      )
+        .bind(memberId)
+        .all()
+    ).results;
+    assert.equal(notices.length, 2);
+    assert.equal(new Set(notices.map((n) => n.title)).size, 2);
+    assert.equal(notices.filter((n) => n.title.includes(title)).length, 1);
+    assert.equal(
+      (
+        await a.DB.prepare("SELECT count(*) AS n FROM nl_otp WHERE phone=?")
+          .bind(member.phone)
+          .first()
+      ).n,
+      1,
+    );
+    const replay = await a.req("committees/save", body, owner, {
+      key: "two-roles-" + field,
+    });
+    ok(replay);
+    assert.deepEqual(replay.data, saved.data);
+    await dispatchNotifications(a.env);
+    assert.equal(messages.length, 2);
+    const passwords = messages.map(
+      (m) => m.message.match(/\b[A-F0-9]{12}\b/)[0],
+    );
+    assert.equal(
+      new Set(passwords).size,
+      1,
+      "role notices share a single one-use credential",
+    );
+    await dispatchNotifications(a.env);
+    assert.equal(messages.length, 2);
+    assert.equal((await login(a, added.phone, passwords[0])).status, 200);
+    assert.equal((await login(a, added.phone, passwords[1])).status, 400);
+    const edited = await a.req("committees/save", {
+      id: committee.id,
+      version: committee.version,
+      project_id: pid,
+      name: "اسم لجنة محدث",
+      members: memberships,
+    });
+    ok(edited);
+    await dispatchNotifications(a.env);
+    assert.equal(
+      messages.length,
+      2,
+      "ordinary editing does not repeat assignment notices",
+    );
+  }
+});
+
+test("explicit manager membership is distinct from leadership; revoked roles do not send stale notices", async () => {
+  const a = await app(),
+    messages = configure(a),
+    pid = await addProject(a),
+    added = person(34);
+  const saved = await a.req("committees/save", {
+    project_id: pid,
+    name: "لجنة إشعار الأدوار",
+    manager_id: added.token,
+    members: [{ id: added.token, role: "manager", grants: [] }],
+    inline_people: [added],
+  });
+  ok(saved);
+  const id = saved.data.inline_people_resolved[added.token],
+    committee = await row(a, "nl_committees", saved.data.id);
+  const invite = await a.DB.prepare(
+    "SELECT * FROM nl_otp WHERE phone='+966500000034'",
+  ).first();
+  assert.match(invite.site_id, /:manager\+membership_manager$/);
+  assert.equal(
+    (
+      await a.DB.prepare(
+        "SELECT count(*) AS n FROM nl_notifications WHERE member_id=? AND channel='whatsapp'",
+      )
+        .bind(id)
+        .first()
+    ).n,
+    2,
+  );
+  await a.DB.prepare(
+    "UPDATE nl_committees SET manager_id=NULL,version=version+1 WHERE id=?",
+  )
+    .bind(committee.id)
+    .run();
+  await dispatchNotifications(a.env);
+  assert.equal(messages.length, 1);
+  assert.match(messages[0].message, /عضو اللجنة بصفة مدير/);
+  const password = messages[0].message.match(/\b[A-F0-9]{12}\b/)[0];
+  assert.equal(
+    (await login(a, added.phone, password)).status,
+    200,
+    "retained explicit membership remains eligible",
+  );
+  assert.equal((await login(a, added.phone, password)).status, 400);
+});
+
+test("historical referral invitations require the current committee manager", async () => {
+  const a = await fixture(),
+    application = crypto.randomUUID(),
+    timestamp = new Date().toISOString();
+  const member = await row(a, "nl_members", a.outsider.memberId);
+  await a.DB.prepare(
+    "INSERT INTO nl_join_requests(id,name,phone,reason,committee_id,status,assigned_to,policy_version,policy_snapshot,consent_at,verified_at,created,updated) VALUES(?,?,?,?,?,'referred',?,0,'{}',?,?,?,?)",
+  )
+    .bind(
+      application,
+      "Historical referral test",
+      "+966500000091",
+      "Test participation",
+      a.cid,
+      member.id,
+      timestamp,
+      timestamp,
+      timestamp,
+      timestamp,
+    )
+    .run();
+  const committee = await row(a, "nl_committees", a.cid),
+    members = JSON.parse(committee.members);
+  members.push({ id: member.id, role: "supervisor", grants: [] });
+  await a.DB.prepare("UPDATE nl_committees SET members=? WHERE id=?")
+    .bind(JSON.stringify(members), a.cid)
+    .run();
+  const invite = {
+    id: crypto.randomUUID(),
+    site_id: `person:${member.id}:join_requests:${application}:supervisor`,
+    phone: member.phone,
+    used: 0,
+    expires: Date.now() + 60000,
+  };
+  assert.equal(await personInvitationEligible(a.DB, invite, member), false);
+  await a.DB.prepare("UPDATE nl_committees SET manager_id=? WHERE id=?")
+    .bind(member.id, a.cid)
+    .run();
+  assert.equal(await personInvitationEligible(a.DB, invite, member), true);
+  assert.equal(
+    await personInvitationEligible(
+      a.DB,
+      { ...invite, site_id: `person:${member.id}` },
+      member,
+    ),
+    false,
+  );
+});
+
+test("delayed role notices survive consumed or expired credentials without exposing an unusable password", async () => {
+  for (const scenario of ["consumed", "expired"]) {
+    const a = await app(),
+      messages = configure(a),
+      pid = await addProject(a),
+      added = person(35);
+    const saved = await a.req("committees/save", {
+      project_id: pid,
+      name: "لجنة إشعار مؤجل",
+      manager_id: added.token,
+      members: [
+        { id: added.token, role: "member", title: "منسق الموقع", grants: [] },
+      ],
+      inline_people: [added],
+    });
+    ok(saved);
+    const member = await row(
+      a,
+      "nl_members",
+      saved.data.inline_people_resolved[added.token],
+    );
+    const invite = await a.DB.prepare("SELECT * FROM nl_otp WHERE phone=?")
+      .bind(member.phone)
+      .first();
+    if (scenario === "consumed") {
+      await dispatchNotifications(a.env, invite.id);
+      assert.equal(messages.length, 1);
+      const password = messages[0].message.match(/\b[A-F0-9]{12}\b/)[0];
+      assert.equal((await login(a, added.phone, password)).status, 200);
+      await dispatchNotifications(a.env);
+      assert.equal(messages.length, 2);
+      assert.doesNotMatch(messages[1].message, /\b[A-F0-9]{12}\b/);
+      assert.match(messages[1].message, /منسق الموقع/);
+      assert.equal((await login(a, added.phone, password)).status, 400);
+    } else {
+      await a.DB.prepare("UPDATE nl_otp SET expires=0 WHERE id=?")
+        .bind(invite.id)
+        .run();
+      await dispatchNotifications(a.env);
+      assert.equal(messages.length, 2);
+      for (const message of messages)
+        assert.doesNotMatch(message.message, /\b[A-F0-9]{12}\b/);
+    }
+    const fresh = await row(a, "nl_otp", invite.id);
+    assert.equal(
+      await personInvitationEligible(a.DB, fresh, member),
+      false,
+      "authentication still requires a current unused credential",
+    );
+    assert.equal(
+      await personInvitationEligible(a.DB, fresh, member, [], {
+        credentialRequired: false,
+      }),
+      true,
+    );
+    await a.DB.prepare(
+      "UPDATE nl_committees SET manager_id=NULL,members='[]',version=version+1 WHERE id=?",
+    )
+      .bind(saved.data.id)
+      .run();
+    assert.equal(
+      await personInvitationEligible(a.DB, fresh, member, [], {
+        credentialRequired: false,
+      }),
+      false,
+      "notice eligibility still requires a current role",
+    );
+    await dispatchNotifications(a.env);
+    assert.equal(messages.length, 2);
+  }
 });

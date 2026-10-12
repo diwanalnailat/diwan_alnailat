@@ -552,6 +552,12 @@
   function committeeMemberRow(
     m = { id: "", role: "member", grants: membershipPreset("member") },
   ) {
+    const titles = [
+      ...new Set([
+        ...(S.membershipTitles || []),
+        ...(m.title ? [m.title] : []),
+      ]),
+    ];
     return `<div class="membership-row" data-membership><div class="form-grid">${field(
       "العضو",
       select(
@@ -567,11 +573,13 @@
         [
           ["member", "عضو لجنة"],
           ["manager", "مسؤول لجنة"],
-          ["supervisor", "مشرف اللجنة وطلبات الانضمام المحالة"],
+          ["supervisor", "مشرف لجنة"],
+          ...titles.map((title) => ["title:" + title, title]),
+          ["other", "أخرى"],
         ],
-        m.role,
+        m.title ? "title:" + m.title : m.role,
       ),
-    )}</div><details><summary>تخصيص صلاحيات هذا العضو في هذه اللجنة</summary><p class="muted">الصفة قالب بداية. يمكنك إضافة الصلاحيات أو سحبها. المنع الصريح يتقدم على السماح.</p><div class="membership-permissions">${[
+    )}<div class="full" data-membership-title hidden>${field("اسم صفة العضوية *", input("membership_title", m.title || "", "text", 'disabled maxlength="80" placeholder="مثال: منسق الضيافة"'), true)}</div></div><details><summary>تخصيص صلاحيات هذا العضو في هذه اللجنة</summary><p class="muted">الصفة قالب بداية. يمكنك إضافة الصلاحيات أو سحبها. المنع الصريح يتقدم على السماح.</p><div class="membership-permissions">${[
       "tasks",
       "expenses",
       "committees",
@@ -642,7 +650,7 @@
       `<form class="form-grid">${part(
         "1",
         "اختصاص اللجنة وقيادتها",
-        "يعتمد مدير اللجنة إنجاز مهامها ومصاريفها في المرحلة الأولى.",
+        "يعتمد مدير اللجنة إنجاز مهامها ومصاريفها في المرحلة الأولى، ويتولى طلبات الانضمام المحالة إلى اللجنة.",
         `${field("اسم اللجنة *", input("name", c.name || "", "text", "required"), true)}${field(
           "المشروع",
           select(
@@ -652,7 +660,7 @@
             c.id ? "disabled" : "required",
           ),
         )}${field("مدير اللجنة", managerFields(c, access))}${field("المعتمد الثاني للمصاريف", select("second_approver_id", [["", "اختر صاحب صلاحية الاعتماد"], ...candidates.map((u) => [u.id, u.name])], c.config?.second_approver_id || "", access ? "" : "disabled"))}${field("بديل الاعتماد عند تعارض المصالح", select("review_delegate_id", [["", "اختر بديلًا عند الحاجة"], ...candidates.filter((u) => u.id !== c.config?.second_approver_id).map((u) => [u.id, u.name])], c.config?.review_delegate_id || "", access ? "" : "disabled"))}<p class="form-note full">البديل يراجع مصروف أحد المعتمدين، ولا يستطيع صاحب المصروف اعتماد طلبه. الأول مدير اللجنة. الثاني تختاره هنا من أصحاب صلاحية الاعتماد؛ ويمكن اختيار الشخص نفسه لعدة لجان. ظهور الاسم لا يمنح صلاحية جديدة.</p>${field("اختصاص اللجنة", textarea("description", c.description || "", 3), true)}`,
-      )}${part("2", "الأعضاء ومشرفو اللجنة", "يمكن تعيين أكثر من مشرف باختيار صفة مشرف اللجنة. لا تظهر لهم طلبات الانضمام إلا بعد إحالة الإدارة إلى المشرف المحدد. صلاحيات اعتماد المهام والمصاريف تبقى حسب الدور والمنح.", `<div class="full" id="committeeMembers">${c.members.map(committeeMemberRow).join("")}</div>${access ? '<button type="button" class="button full" data-action="membership-add">+ إضافة عضو أو مشرف من الديوان</button>' : ""}`)}${part("3", "بنود الصرف المعتمدة", "لا يكتب العضو تصنيفًا حرًا. يختار بندًا من هذه القائمة عند رفع المصروف.", `<div class="catalog-head"><span>اسم البند</span><span>المخصص — ر.س</span><span>التفعيل</span></div><div class="full" id="budgetCatalog">${(c.config?.budgetLines || []).map(budgetRow).join("")}</div>${access ? '<button type="button" class="button full" data-action="budget-add">+ بند صرف</button>' : ""}${access ? field("الوسوم المعتمدة — سطر لكل وسم", textarea("catalog_tags", (c.config?.tags || []).join("\n"), 3), true) : ""}<p class="form-note full">تعطيل البند يمنع استخدامه في طلبات جديدة ويحفظ العمليات السابقة. مراحل المهام موحدة: بدء، تنفيذ، مساندة عند الحاجة، مراجعة المدير، اكتمال معتمد.</p>`)}${actions("حفظ اللجنة وربط الوصول")}</form>`,
+      )}${part("2", "الأعضاء وصفات العضوية", "أضف أعضاء اللجنة وحدد مسؤولية كل شخص. المشرف يتابع أعمال اللجنة، ومدير اللجنة يتولى طلبات الانضمام المحالة إليها. يمكن للشخص الجمع بين دور قيادي وصفة عضوية، ويُشعر بكل دور عند الحفظ.", `<div class="full" id="committeeMembers">${c.members.map(committeeMemberRow).join("")}</div>${access ? '<button type="button" class="button full" data-action="membership-add">+ إضافة عضو أو مشرف من الديوان</button>' : ""}`)}${part("3", "بنود الصرف المعتمدة", "لا يكتب العضو تصنيفًا حرًا. يختار بندًا من هذه القائمة عند رفع المصروف.", `<div class="catalog-head"><span>اسم البند</span><span>المخصص — ر.س</span><span>التفعيل</span></div><div class="full" id="budgetCatalog">${(c.config?.budgetLines || []).map(budgetRow).join("")}</div>${access ? '<button type="button" class="button full" data-action="budget-add">+ بند صرف</button>' : ""}${access ? field("الوسوم المعتمدة — سطر لكل وسم", textarea("catalog_tags", (c.config?.tags || []).join("\n"), 3), true) : ""}<p class="form-note full">تعطيل البند يمنع استخدامه في طلبات جديدة ويحفظ العمليات السابقة. مراحل المهام موحدة: بدء، تنفيذ، مساندة عند الحاجة، مراجعة المدير، اكتمال معتمد.</p>`)}${actions("حفظ اللجنة وربط الوصول")}</form>`,
       async (fd, f) => {
         const b = {
           ...formData(fd),
@@ -664,7 +672,30 @@
           b.members = [...f.querySelectorAll("[data-membership]")].map(
             (row) => ({
               id: row.querySelector("[name=membership_id]").value,
-              role: row.querySelector("[name=membership_role]").value,
+              role:
+                ["other", "member"].includes(
+                  row.querySelector("[name=membership_role]").value,
+                ) ||
+                row
+                  .querySelector("[name=membership_role]")
+                  .value.startsWith("title:")
+                  ? "member"
+                  : row.querySelector("[name=membership_role]").value,
+              ...(row.querySelector("[name=membership_role]").value === "other"
+                ? {
+                    title: row
+                      .querySelector("[name=membership_title]")
+                      .value.trim(),
+                  }
+                : row
+                      .querySelector("[name=membership_role]")
+                      .value.startsWith("title:")
+                  ? {
+                      title: row
+                        .querySelector("[name=membership_role]")
+                        .value.slice(6),
+                    }
+                  : {}),
               grants: [...row.querySelectorAll("[data-perm-action]")]
                 .filter((x) => x.value)
                 .map((x) => ({
@@ -677,16 +708,6 @@
                 })),
             }),
           );
-          if (b.manager_id) {
-            let m = b.members.find((x) => x.id === b.manager_id);
-            if (!m)
-              b.members.push({
-                id: b.manager_id,
-                role: "manager",
-                grants: membershipPreset("manager"),
-              });
-            else m.role = "manager";
-          }
           b.config = {
             tags: String(fd.get("catalog_tags") || "")
               .split("\n")
@@ -1639,7 +1660,7 @@
   }
   const joinStatusNames = {
     pending: "بانتظار الإدارة",
-    referred: "محال إلى المشرف",
+    referred: "محال إلى مدير اللجنة",
     approved: "مقبول",
     rejected: "مرفوض",
   };
@@ -1660,7 +1681,7 @@
       const result = await api("join-requests");
       if (!container.isConnected) return;
       container.innerHTML =
-        `<div class="panel-body"><p class="muted">${result.is_admin ? "يمكنك قبول الطلب مباشرة أو إحالته إلى أحد مشرفي اللجنة المطلوبة." : "تظهر هنا الطلبات التي أحالتها الإدارة إليك فقط."}</p></div>` +
+        `<div class="panel-body"><p class="muted">${result.is_admin ? "يمكنك قبول الطلب مباشرة أو إحالته إلى مدير اللجنة المطلوبة." : "تظهر هنا الطلبات التي أحالتها الإدارة إليك فقط."}</p></div>` +
         (result.requests.length
           ? table(
               [
@@ -1668,7 +1689,7 @@
                 "رقم الجوال",
                 "جهة الانضمام",
                 "الحالة",
-                "المشرف المكلّف",
+                "مدير اللجنة المكلّف",
                 "التاريخ",
                 "",
               ],
@@ -1695,23 +1716,27 @@
     const request = result.requests.find((item) => item.id === id);
     if (!request)
       throw new Error("الطلب غير متاح لك أو تغيرت إحالته. حدّث القائمة.");
-    const supervisors = result.supervisors.filter(
-      (item) => item.committee_id === request.committee_id,
-    );
-    const details = `<dl class="join-request-details"><div><dt>الاسم</dt><dd>${esc(request.name)}</dd></div><div><dt>رقم الجوال الموثق</dt><dd><bdi>${esc(request.phone)}</bdi></dd></div><div><dt>جهة الانضمام</dt><dd>${esc(request.committee_name || "الانضمام المباشر للديوان")}</dd></div><div><dt>الحالة</dt><dd>${esc(joinStatusNames[request.status] || request.status)}</dd></div><div><dt>سبب الانضمام</dt><dd class="join-preserve">${esc(request.reason)}</dd></div>${request.assigned_name ? `<div><dt>المشرف المكلّف</dt><dd>${esc(request.assigned_name)}</dd></div>` : ""}</dl>`;
+    const committeeManager = Object.hasOwn(request, "manager_id")
+      ? request.manager_id
+      : S.committees.find((item) => item.id === request.committee_id)
+          ?.manager_id;
+    const details = `<dl class="join-request-details"><div><dt>الاسم</dt><dd>${esc(request.name)}</dd></div><div><dt>رقم الجوال الموثق</dt><dd><bdi>${esc(request.phone)}</bdi></dd></div><div><dt>جهة الانضمام</dt><dd>${esc(request.committee_name || "الانضمام المباشر للديوان")}</dd></div><div><dt>الحالة</dt><dd>${esc(joinStatusNames[request.status] || request.status)}</dd></div><div><dt>سبب الانضمام</dt><dd class="join-preserve">${esc(request.reason)}</dd></div>${request.assigned_name ? `<div><dt>مدير اللجنة المكلّف</dt><dd>${esc(request.assigned_name)}</dd></div>` : ""}</dl>`;
     if (forward) {
       if (!request.can_forward || !request.committee_id)
-        throw new Error("لا يمكن إحالة هذا الطلب إلى مشرف.");
+        throw new Error("لا يمكن إحالة هذا الطلب إلى مدير اللجنة.");
+      if (!committeeManager)
+        throw new Error(
+          "عيّن مديرًا للجنة من إعداداتها قبل إحالة طلب الانضمام.",
+        );
       modal(
-        "إحالة طلب الانضمام",
-        `<form class="form-grid"><div class="full">${details}</div>${field("المشرف في اللجنة المطلوبة", select("supervisor_id", [["", "اختر مشرفًا"], ...supervisors.map((item) => [item.id, item.name])], request.assigned_to || "", "required"), true)}<p class="form-note full">سيظهر الطلب للمشرف المحدد فقط، ويمكنه قبوله أو رفضه.</p>${actions("إحالة الطلب")}</form>`,
-        async (fd) => {
+        "إحالة طلب الانضمام لمدير اللجنة",
+        `<form class="form-grid"><div class="full">${details}</div>${field("مدير اللجنة المسؤول عن الطلب", input("manager_display", request.manager_name || person(committeeManager), "text", "disabled"), true)}<p class="form-note full">يُحال الطلب إلى مدير اللجنة الحالي، ويمكنه قبوله أو رفضه.</p>${actions("إحالة الطلب إلى المدير")}</form>`,
+        async () => {
           await api("join-requests/forward", {
             id: request.id,
             version: request.version,
-            supervisor_id: fd.get("supervisor_id"),
           });
-          toast("تمت إحالة الطلب إلى المشرف المحدد");
+          toast("تمت إحالة الطلب إلى مدير اللجنة");
         },
       );
       return;
@@ -1719,7 +1744,7 @@
     const forwardButton =
       request.can_forward && request.committee_id
         ? btn(
-            "إحالة إلى مشرف اللجنة",
+            "إحالة إلى مدير اللجنة",
             "join-request-forward",
             request.id,
             "button-ghost",
@@ -1955,14 +1980,12 @@
     if (!form || target?.disabled || !can("users", "manage")) return false;
     const token = "new-person:" + crypto.randomUUID();
     if (!inlinePeople.has(form)) inlinePeople.set(form, new Map());
-    inlinePeople
-      .get(form)
-      .set(token, {
-        token,
-        name: name.value,
-        phone: phone.value,
-        ...(email.value ? { email: email.value } : {}),
-      });
+    inlinePeople.get(form).set(token, {
+      token,
+      name: name.value,
+      phone: phone.value,
+      ...(email.value ? { email: email.value } : {}),
+    });
     if (target.tagName === "SELECT") {
       target.insertAdjacentHTML(
         "beforeend",
@@ -1981,6 +2004,7 @@
       "أُضيف إلى الاختيار. احفظ النموذج لتأكيد الإضافة والدعوة.";
     setPersonPanel(picker, false);
     for (const input of [name, phone, email]) input.value = "";
+    syncCommitteePersonOptions(form);
     target.dispatchEvent(new Event("change", { bubbles: true }));
     picker
       .querySelector("[data-action=inline-person-toggle]")
@@ -1989,6 +2013,10 @@
   }
   function preservePendingOptions(select, selected, exclude = []) {
     const pending = inlinePeople.get(select.closest("form"));
+    for (const option of [...select.options]) {
+      if (pending?.has(option.value) && exclude.includes(option.value))
+        option.remove();
+    }
     for (const person of pending?.values() || []) {
       if (
         exclude.includes(person.token) ||
@@ -2002,6 +2030,22 @@
     }
     if ([...select.options].some((option) => option.value === selected))
       select.value = selected;
+  }
+  function syncCommitteePersonOptions(form) {
+    if (!form?.querySelector("#committeeMembers")) return;
+    const manager = form.querySelector("[name=manager_id]");
+    const second = form.querySelector("[name=second_approver_id]");
+    const delegate = form.querySelector("[name=review_delegate_id]");
+    for (const select of form.querySelectorAll(
+      "[name=membership_id],[name=manager_id]",
+    ))
+      preservePendingOptions(select, select.value);
+    if (second) preservePendingOptions(second, second.value, [manager?.value]);
+    if (delegate)
+      preservePendingOptions(delegate, delegate.value, [
+        manager?.value,
+        second?.value,
+      ]);
   }
   const select = (name, options, value = "", extra = "") => {
     const staged = inlinePersonDefinition(value);
@@ -5801,6 +5845,7 @@
           "beforeend",
           committeeMemberRow(),
         );
+        syncCommitteePersonOptions($("#committeeMembers").closest("form"));
         break;
       case "membership-remove":
         el.closest("[data-membership]").remove();
@@ -6149,12 +6194,25 @@
         if (el.value === "manager" && selectedManager) {
           preservePendingOptions(selectedManager, id);
           selectedManager.value = id;
-        } else if (selectedManager?.value === id) selectedManager.value = "";
-        row.outerHTML = committeeMemberRow({
-          id,
-          role: el.value,
-          grants: membershipPreset(el.value),
-        });
+          selectedManager.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+        const custom = el.value === "other";
+        const title = row.querySelector("[name=membership_title]");
+        row.querySelector("[data-membership-title]").hidden = !custom;
+        title.disabled = !custom;
+        title.required = custom;
+        const grants = membershipPreset(el.value);
+        for (const control of row.querySelectorAll("[data-perm-action]"))
+          control.value =
+            grants.find(
+              (g) =>
+                g.resource === control.dataset.resource &&
+                g.action === control.dataset.permAction,
+            )?.effect || "";
+        row.querySelector("[name=membership_assigned]").checked = grants.some(
+          (g) => g.assignedOnly,
+        );
+        if (custom) title.focus({ preventScroll: true });
       }
       if (el.dataset.filter && el.dataset.filter !== "q") {
         taskFilter[el.dataset.filter] = el.value;

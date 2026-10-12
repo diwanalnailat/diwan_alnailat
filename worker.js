@@ -1,4 +1,9 @@
 import { resolveGoogleMaps } from "./lib/google-maps.js";
+import {
+  normalizeMembershipTitle,
+  membershipTitles,
+  membershipTitleStatements,
+} from "./lib/membership-titles.js";
 import { inlineDatabase, prepareInlinePeople } from "./lib/inline-people.js";
 import { personInvitationEligible } from "./lib/person-invitations.js";
 import {
@@ -760,6 +765,9 @@ async function state(db, c, filter = "", env = {}) {
             c.can("assistant", "view", { project_id: g.project_id })),
       )
       .map((g) => ({ ...g, content: parse(g.content) })),
+    membershipTitles: c.can("users", "manage")
+      ? await membershipTitles(db)
+      : [],
     approvalCandidates: c.can("users", "manage")
       ? memberRows
           .filter((m) => m.status === "active")
@@ -1403,9 +1411,7 @@ async function handle(req, env) {
         fail(
           "هذا العضو أوقف إشعارات واتساب؛ اختره من قائمة المديرين دون إرسال دعوة",
         );
-      const membership = members.find((m) => m.id === manager);
-      if (membership) membership.role = "manager";
-      else
+      if (!members.some((m) => m.id === manager))
         members.push({
           id: manager,
           role: "manager",
@@ -1420,6 +1426,16 @@ async function handle(req, env) {
         project,
       );
     }
+    if (manager && !members.some((m) => m.id === manager)) {
+      c.need("users", "manage");
+      members.push({
+        id: manager,
+        role: "manager",
+        grants: MEMBER_PRESETS.manager,
+      });
+    }
+    if (members.length > 200) fail("راجع قائمة أعضاء اللجنة");
+    for (const member of members) normalizeMembershipTitle(member);
     if (
       JSON.stringify(members) !== JSON.stringify(parse(old?.members, [])) ||
       manager !== (old?.manager_id || null)
@@ -1579,6 +1595,7 @@ async function handle(req, env) {
         db
           .prepare("UPDATE nl_committees SET config=? WHERE id=?")
           .bind(JSON.stringify(cfg), id),
+        ...(await membershipTitleStatements(db, members)),
         audit(
           db,
           c.u,
@@ -4128,14 +4145,33 @@ export async function dispatchNotifications(env, onlyId = null) {
       entity = null;
     }
     const recipient = m ? withCommittees(m, committees) : null;
+    const [credentialId, noticeRole] = n.id.split(":role:");
     const invite = await one(
       db,
       "SELECT * FROM nl_otp WHERE id=? AND (site_id LIKE 'manager:%' OR site_id LIKE 'person:%')",
-      n.id,
+      credentialId,
     );
+    const inviteParts = invite?.site_id.split(":") || [];
+    const inviteRoles = (inviteParts[4] || "").split("+");
+    const specificRole = noticeRole || inviteRoles[0];
     const personNotice =
       invite?.site_id.startsWith("person:") &&
-      (await personInvitationEligible(db, invite, m));
+      inviteRoles.includes(specificRole) &&
+      (await personInvitationEligible(
+        db,
+        {
+          ...invite,
+          site_id: [...inviteParts.slice(0, 4), specificRole].join(":"),
+        },
+        m,
+        [],
+        { credentialRequired: false },
+      ));
+    const credentialUsable =
+      invite &&
+      !invite.used &&
+      invite.expires > Date.now() &&
+      invite.attempts < 5;
     const inviteProject = invite
       ? await one(db, "SELECT status FROM nl_projects WHERE id=?", n.project_id)
       : null;
@@ -4210,15 +4246,17 @@ export async function dispatchNotifications(env, onlyId = null) {
         env,
         m.phone,
         env.WHATSAPP_NOTIFICATION_TEMPLATE,
-        managerNotice
+        managerNotice && credentialUsable
           ? [
               m.name,
               `${n.title}. ${n.body} كلمة المرور المؤقتة: ${await invitationPassword(env, invite)} — صالحة لاستخدام واحد خلال 24 ساعة. اختر «لدي كلمة مرور مؤقتة» في صفحة الدخول. لا تشاركها مع أحد.`,
               base + "/login",
             ]
-          : joinNotification && env.WHATSAPP_PROVIDER === "green_api"
-            ? [n.title]
-            : [m.name, n.title, deep],
+          : personNotice
+            ? [m.name, `${n.title}. ${n.body}`, deep]
+            : joinNotification && env.WHATSAPP_PROVIDER === "green_api"
+              ? [n.title]
+              : [m.name, n.title, deep],
       );
       await db.batch([
         ...(managerNotice
