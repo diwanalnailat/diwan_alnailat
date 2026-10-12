@@ -5,7 +5,7 @@ import { JSDOM } from "jsdom";
 import worker from "../worker.js";
 import { fixture, owner } from "./support.mjs";
 
-test("committee roster precedes tasks and supports independent delivery, login and retry states", async () => {
+test("committee roster loads only on dialog open or explicit refresh and preserves delivery, login and retry states", async () => {
   const a = await fixture(),
     writes = [],
     errors = [];
@@ -70,18 +70,6 @@ test("committee roster precedes tasks and supports independent delivery, login a
     assert.ok(el, selector);
     el.click();
   };
-  const change = (selector, value) => {
-    const el = d.querySelector(selector);
-    assert.ok(el, selector);
-    el.value = value;
-    el.dispatchEvent(new w.Event("change", { bubbles: true }));
-  };
-  const submit = () =>
-    d
-      .querySelector("#permissionsForm")
-      .dispatchEvent(
-        new w.Event("submit", { bubbles: true, cancelable: true }),
-      );
   try {
     for (const [id, title, status] of [
       ["ui-manager", "Manager assignment", "delivered"],
@@ -127,7 +115,30 @@ test("committee roster precedes tasks and supports independent delivery, login a
       () => d.querySelector('[data-action="committee-open"]') && !pending,
     );
     click('[data-action="committee-open"]');
+    await wait(
+      () =>
+        d.querySelector('[data-action="committee-roster-open"]') && !pending,
+    );
+    assert.equal(
+      rosterReads,
+      0,
+      "opening the committee never fetches roster data",
+    );
+    assert.equal(d.querySelector("#committeeRoster"), null);
+    click('[data-action="task-view"][data-view="table"]');
+    await wait(() => d.querySelector('[data-view="table"].active') && !pending);
+    assert.equal(
+      rosterReads,
+      0,
+      "changing task views never fetches roster data",
+    );
+    click('[data-action="task-view"][data-view="kanban"]');
+    click('[data-action="committee-roster-open"]');
     await wait(() => d.querySelector(".committee-roster-person") && !pending);
+    assert.equal(rosterReads, 1);
+    assert.ok(d.querySelector("#modal").open);
+    assert.ok(d.querySelector("#modalBody #committeeRoster"));
+    assert.equal(d.querySelector("#main #committeeRoster"), null);
     assert.equal(d.querySelectorAll(".committee-roster-person").length, 3);
     const roster = d.querySelector("#committeeRoster");
     assert.ok(roster.textContent.includes("وصلت"));
@@ -135,12 +146,6 @@ test("committee roster precedes tasks and supports independent delivery, login a
     assert.ok(roster.textContent.includes("لم يدخل بعد آخر دعوة"));
     assert.ok(roster.textContent.includes("لا يوجد دخول مسجل"));
     assert.equal(roster.querySelector("script"), null);
-    assert.ok(
-      d
-        .querySelector("#committeeRoster")
-        .compareDocumentPosition(d.querySelector(".kanban")) &
-        w.Node.DOCUMENT_POSITION_FOLLOWING,
-    );
     assert.ok(
       d.querySelector("#committeeRoster").textContent.includes("manager"),
     );
@@ -161,7 +166,19 @@ test("committee roster precedes tasks and supports independent delivery, login a
     failRoster = false;
     click('#committeeRoster [data-action="committee-roster-refresh"]');
     await wait(() => d.querySelector(".committee-roster-person") && !pending);
-    assert.ok(rosterReads >= 3);
+    assert.equal(rosterReads, 3);
+    click('[data-action="close-modal"]');
+    assert.equal(d.querySelector("#modal").open, false);
+    click('[data-action="task-view"][data-view="table"]');
+    await wait(() => d.querySelector('[data-view="table"].active') && !pending);
+    assert.equal(
+      rosterReads,
+      3,
+      "rendering after close never reloads the hidden roster",
+    );
+    click('[data-action="committee-roster-open"]');
+    await wait(() => d.querySelector(".committee-roster-person") && !pending);
+    assert.equal(rosterReads, 4, "reopening fetches fresh data");
     assert.equal(writes.length, 0, "refresh never sends an invitation");
     assert.deepEqual(errors, []);
   } finally {

@@ -859,15 +859,16 @@
   }
   let rosterRequest = 0;
   async function loadCommitteeRoster() {
-    const target = $("#committeeRoster");
-    if (!target) return;
-    const id = committee,
+    const dialog = $("#modal"),
+      target = $("#modalBody #committeeRoster");
+    if (!dialog.open || !target) return;
+    const id = target.dataset.committee,
       request = ++rosterRequest;
     target.innerHTML =
       '<p role="status" class="muted">جارٍ تحميل فريق اللجنة…</p>';
     try {
       const data = await api("committees/roster?id=" + encodeURIComponent(id));
-      if (request !== rosterRequest || !target.isConnected || id !== committee)
+      if (request !== rosterRequest || !target.isConnected || !dialog.open)
         return;
       const statuses = {
         queued: "بانتظار الإرسال",
@@ -901,14 +902,19 @@
             )}</div>${data.can_track ? '<p class="muted committee-roster-note">تُعرض أحدث رسالة لكل تعيين. «وصلت» و«قُرئت» بحسب تأكيد واتساب. الدخول يعني تسجيل الدخول إلى المنصة، وليس فتح صفحة اللجنة.</p>' : '<p class="muted">متابعة الرسائل والدخول متاحة لمن لديه صلاحية تعديل اللجنة.</p>'}`
         : '<p class="muted">لم يُضف أشخاص إلى هذه اللجنة بعد.</p>';
     } catch (error) {
-      if (request === rosterRequest && target.isConnected)
+      if (request === rosterRequest && target.isConnected && dialog.open)
         target.innerHTML = `<p role="alert">${esc(error.message || "تعذر تحميل فريق اللجنة")}</p>${btn("إعادة المحاولة", "committee-roster-refresh", "", "button-ghost")}`;
     }
   }
-  function committeeRosterPanel() {
-    return committee
-      ? `<section class="panel committee-roster" aria-labelledby="committeeRosterTitle"><div class="committee-roster-heading"><div><h2 id="committeeRosterTitle">فريق اللجنة</h2><p class="muted">المدراء والمشرفون والأعضاء وحالة التواصل معهم</p></div>${btn("تحديث الحالة", "committee-roster-refresh", "", "button-ghost")}</div><div id="committeeRoster" aria-live="polite"></div></section>`
-      : "";
+  function committeeRosterDialog() {
+    if (!committee) return;
+    modal(
+      "فريق اللجنة",
+      `<div class="committee-roster committee-roster-dialog"><div class="committee-roster-heading"><div><h2>${esc(committeeName(committee))}</h2><p class="muted">المدراء والمشرفون والأعضاء وحالة التواصل معهم</p></div>${btn("تحديث الحالة", "committee-roster-refresh", "", "button-ghost")}</div><div id="committeeRoster" data-committee="${esc(committee)}" aria-live="polite"></div></div>`,
+      null,
+      true,
+    );
+    loadCommitteeRoster();
   }
   function tasksPage() {
     const tasks = filteredTasks(),
@@ -959,6 +965,15 @@
         })
           ? btn("تصدير Excel", "export", "tasks", "", "download")
           : "") +
+          (committee
+            ? btn(
+                "فريق اللجنة",
+                "committee-roster-open",
+                "",
+                "button-ghost",
+                "users",
+              )
+            : "") +
           (committee &&
           can(
             "committees",
@@ -975,7 +990,6 @@
             : "") +
           (mayCreate("tasks") ? btn("مهمة جديدة", "task-new") : ""),
       ) +
-      committeeRosterPanel() +
       `<section class="panel"><div class="tabs">${views.map(([id, name]) => `<button class="tab ${taskView === id ? "active" : ""}" data-action="task-view" data-view="${id}">${name}</button>`).join("")}</div><div class="toolbar"><div class="filters">${projectSelect()}${committeeSelect()}<select class="select-inline" data-filter="status" aria-label="الحالة"><option value="">كل الحالات</option>${boardStatuses()
         .map(
           (s) =>
@@ -1882,7 +1896,6 @@
     views.profile = () => DiwanViews.profile(workspaceContext());
     $("#main").dataset.animate = String(animate);
     $("#main").innerHTML = (views[page] || views.overview)();
-    if (page === "tasks" && committee) loadCommitteeRoster();
     if (animate) window.DiwanMotion?.enter($("#main"));
     if (page === "heritage") initHeritageMotion();
 
@@ -5972,6 +5985,9 @@
         break;
       case "committee-edit":
         committeeForm(id);
+        break;
+      case "committee-roster-open":
+        committeeRosterDialog();
         break;
       case "committee-roster-refresh":
         loadCommitteeRoster();

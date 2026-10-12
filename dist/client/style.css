@@ -6128,6 +6128,10 @@ body {
   margin-bottom: 24px;
   padding: 24px;
 }
+.committee-roster-dialog {
+  padding: 0;
+  margin: 0;
+}
 .committee-roster-heading {
   display: flex;
   align-items: center;
