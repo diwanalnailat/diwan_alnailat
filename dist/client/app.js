@@ -638,7 +638,7 @@
             c.id ? "disabled" : "required",
           ),
         )}${field("مدير اللجنة", managerFields(c, access))}${field("المعتمد الثاني للمصاريف", select("second_approver_id", [["", "اختر صاحب صلاحية الاعتماد"], ...candidates.map((u) => [u.id, u.name])], c.config?.second_approver_id || "", access ? "" : "disabled"))}${field("بديل الاعتماد عند تعارض المصالح", select("review_delegate_id", [["", "اختر بديلًا عند الحاجة"], ...candidates.filter((u) => u.id !== c.config?.second_approver_id).map((u) => [u.id, u.name])], c.config?.review_delegate_id || "", access ? "" : "disabled"))}<p class="form-note full">البديل يراجع مصروف أحد المعتمدين، ولا يستطيع صاحب المصروف اعتماد طلبه. الأول مدير اللجنة. الثاني تختاره هنا من أصحاب صلاحية الاعتماد؛ ويمكن اختيار الشخص نفسه لعدة لجان. ظهور الاسم لا يمنح صلاحية جديدة.</p>${field("اختصاص اللجنة", textarea("description", c.description || "", 3), true)}`,
-      )}${part("2", "الأعضاء وصفات العضوية", "أضف أعضاء اللجنة وحدد مسؤولية كل شخص. المشرف يتابع أعمال اللجنة، ومدير اللجنة يتولى طلبات الانضمام المحالة إليها. يمكن للشخص الجمع بين دور قيادي وصفة عضوية، ويُشعر بكل دور عند الحفظ.", `<div class="full" id="committeeMembers">${c.members.map(committeeMemberRow).join("")}</div>${access ? '<button type="button" class="button full" data-action="membership-add">+ إضافة عضو أو مشرف من الديوان</button>' : ""}`)}${access ? part("3", "وسوم اللجنة", "وسوم اختيارية لتنظيم مهام اللجنة.", field("الوسوم المعتمدة — سطر لكل وسم", textarea("catalog_tags", (c.config?.tags || []).join("\n"), 3), true)) : ""}${actions("حفظ اللجنة وربط الوصول")}</form>`,
+      )}${part("2", "الأعضاء وصفات العضوية", "أضف أعضاء اللجنة وحدد مسؤولية كل شخص. المشرف يتابع أعمال اللجنة، ومدير اللجنة يتولى طلبات الانضمام المحالة إليها. يمكن للشخص الجمع بين دور قيادي وصفة عضوية، ويُشعر بكل دور عند الحفظ.", `<div class="full" id="committeeMembers">${c.members.map(committeeMemberRow).join("")}</div>${access ? '<button type="button" class="button full" data-action="membership-add">+ إضافة عضو أو مشرف من الديوان</button>' : ""}`)}${actions("حفظ اللجنة وربط الوصول")}</form>`,
       async (fd, f) => {
         const b = {
           ...formData(fd),
@@ -684,12 +684,6 @@
                     ),
             }),
           );
-          b.config = {
-            tags: String(fd.get("catalog_tags") || "")
-              .split("\n")
-              .map((x) => x.trim())
-              .filter(Boolean),
-          };
         } else {
           delete b.manager_id;
           delete b.second_approver_id;

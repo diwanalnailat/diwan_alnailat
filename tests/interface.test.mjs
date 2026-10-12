@@ -304,9 +304,9 @@ test("actual interface and server: heritage entry, connected membership, task st
     assert.equal(val("second_approver_id", "owner").tagName, "SELECT");
     assert.equal(d.querySelectorAll("[data-budget-line]").length, 0);
     assert.equal(d.querySelector("[data-action=budget-add]"), null);
-    assert.ok(d.querySelector("[name=catalog_tags]"));
+    assert.equal(d.querySelector("[name=catalog_tags]"), null);
     await submit();
-    assert.equal(Object.hasOwn(lastCommitteeSave.config, "budgetLines"), false);
+    assert.equal(lastCommitteeSave.config, undefined);
     assert.equal(
       (await state(a)).committees[0].config.budgetLines[0].budget,
       1000000,
@@ -579,7 +579,7 @@ test("actual interface and server: heritage entry, connected membership, task st
     await click("[data-action=committee-new]");
     assert.equal(d.querySelector("#budgetCatalog"), null);
     assert.equal(d.querySelector("[data-action=budget-add]"), null);
-    assert.ok(d.querySelector("[name=catalog_tags]"));
+    assert.equal(d.querySelector("[name=catalog_tags]"), null);
     assert.equal(
       sharedModal.scrollTop,
       0,
