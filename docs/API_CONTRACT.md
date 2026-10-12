@@ -32,7 +32,7 @@
 | GET /state | بيانات الواجهة المسموحة | project اختياري |
 | POST /projects/save | إنشاء/تعديل موسم | title، season، start، due، budget، status، site_location |
 | POST /projects/clone | موسم جديد من الهيكل | id الأصل، title، season، start، due |
-| POST /committees/save | لجنة وأعضاؤها وبنودها | project_id، name، manager_id، second_approver_id، review_delegate_id، members، config.budgetLines |
+| POST /committees/save | لجنة وقيادتها وأعضاؤها | project_id، name، manager_id، second_approver_id، review_delegate_id، members؛ config اختياري، وتُحفظ الإعدادات التاريخية عند إغفالها |
 | POST /tasks/save | تكليف | title، project_id، assignee_id، due، description، meta.committee_id/type/outcome |
 | GET /tasks/:id | مهمة ومحادثتها ومرفقاتها | tasks:view على السجل |
 | POST /tasks/transition | تغيير المرحلة | id، version، status والسبب/الإثبات عند الحاجة وفق النموذج |
@@ -57,7 +57,7 @@
 
 | المسار POST | العقد |
 |---|---|
-| /expenses/save | title، project_id، committee_id، budget_line_id، amount، tax، date، funding_source، files؛ task_id اختياري، advance_id عند الدفع من عهدة؛ status=draft أو pending |
+| /expenses/save | title، project_id، committee_id، amount، tax، date، funding_source، files؛ task_id اختياري، advance_id عند الدفع من عهدة؛ status=draft أو pending. لا يتطلب بند صرف، والتصنيف السابق محفوظ للطلبات التاريخية فقط |
 | /expenses/review | id، version، decision=approve أو return، reason عند الإعادة. المسار محسوب من اللجنة والتعارض؛ لا يقبل قائمة معتمدين من العضو |
 | /expenses/pay | id، amount، date، reference، files بإيصال reimbursement. المصروف مكتمل الاعتماد؛ لا يكرر تصفية advance/direct |
 | /advances/create | title، project_id، committee_id، assignee_id، amount، date، reference، payment_method، purpose، files |

@@ -615,11 +615,6 @@
         "",
       )}</div><label class="checklist-row"><input type="checkbox" name="membership_assigned" ${m.grants.some((g) => g.assignedOnly) ? "checked" : ""}> مهامه المسندة إليه أو التي يشارك فيها فقط</label></details><button type="button" class="button button-ghost compact" data-action="membership-remove">إزالة من اللجنة</button></div>`;
   }
-  function budgetRow(
-    l = { id: crypto.randomUUID(), name: "", budget: 0, active: true },
-  ) {
-    return `<div class="catalog-row" data-budget-line="${esc(l.id)}">${input("line_name", l.name, "text", 'required placeholder="اسم البند"')}${input("line_budget", (l.budget || 0) / 100, "number", 'min="0" step="0.01" placeholder="المخصص ر.س"')}<label><input type="checkbox" name="line_active" ${l.active ? "checked" : ""}> متاح للرفع</label></div>`;
-  }
   function managerFields(c, access) {
     const existing = select(
       "manager_id",
@@ -635,7 +630,6 @@
         members: [],
         config: {
           tags: ["ميداني", "قبل الافتتاح", "أثناء المشاركة", "بعد المشاركة"],
-          budgetLines: [],
         },
       },
       access = can("users", "manage");
@@ -660,7 +654,7 @@
             c.id ? "disabled" : "required",
           ),
         )}${field("مدير اللجنة", managerFields(c, access))}${field("المعتمد الثاني للمصاريف", select("second_approver_id", [["", "اختر صاحب صلاحية الاعتماد"], ...candidates.map((u) => [u.id, u.name])], c.config?.second_approver_id || "", access ? "" : "disabled"))}${field("بديل الاعتماد عند تعارض المصالح", select("review_delegate_id", [["", "اختر بديلًا عند الحاجة"], ...candidates.filter((u) => u.id !== c.config?.second_approver_id).map((u) => [u.id, u.name])], c.config?.review_delegate_id || "", access ? "" : "disabled"))}<p class="form-note full">البديل يراجع مصروف أحد المعتمدين، ولا يستطيع صاحب المصروف اعتماد طلبه. الأول مدير اللجنة. الثاني تختاره هنا من أصحاب صلاحية الاعتماد؛ ويمكن اختيار الشخص نفسه لعدة لجان. ظهور الاسم لا يمنح صلاحية جديدة.</p>${field("اختصاص اللجنة", textarea("description", c.description || "", 3), true)}`,
-      )}${part("2", "الأعضاء وصفات العضوية", "أضف أعضاء اللجنة وحدد مسؤولية كل شخص. المشرف يتابع أعمال اللجنة، ومدير اللجنة يتولى طلبات الانضمام المحالة إليها. يمكن للشخص الجمع بين دور قيادي وصفة عضوية، ويُشعر بكل دور عند الحفظ.", `<div class="full" id="committeeMembers">${c.members.map(committeeMemberRow).join("")}</div>${access ? '<button type="button" class="button full" data-action="membership-add">+ إضافة عضو أو مشرف من الديوان</button>' : ""}`)}${part("3", "بنود الصرف المعتمدة", "لا يكتب العضو تصنيفًا حرًا. يختار بندًا من هذه القائمة عند رفع المصروف.", `<div class="catalog-head"><span>اسم البند</span><span>المخصص — ر.س</span><span>التفعيل</span></div><div class="full" id="budgetCatalog">${(c.config?.budgetLines || []).map(budgetRow).join("")}</div>${access ? '<button type="button" class="button full" data-action="budget-add">+ بند صرف</button>' : ""}${access ? field("الوسوم المعتمدة — سطر لكل وسم", textarea("catalog_tags", (c.config?.tags || []).join("\n"), 3), true) : ""}<p class="form-note full">تعطيل البند يمنع استخدامه في طلبات جديدة ويحفظ العمليات السابقة. مراحل المهام موحدة: بدء، تنفيذ، مساندة عند الحاجة، مراجعة المدير، اكتمال معتمد.</p>`)}${actions("حفظ اللجنة وربط الوصول")}</form>`,
+      )}${part("2", "الأعضاء وصفات العضوية", "أضف أعضاء اللجنة وحدد مسؤولية كل شخص. المشرف يتابع أعمال اللجنة، ومدير اللجنة يتولى طلبات الانضمام المحالة إليها. يمكن للشخص الجمع بين دور قيادي وصفة عضوية، ويُشعر بكل دور عند الحفظ.", `<div class="full" id="committeeMembers">${c.members.map(committeeMemberRow).join("")}</div>${access ? '<button type="button" class="button full" data-action="membership-add">+ إضافة عضو أو مشرف من الديوان</button>' : ""}`)}${access ? part("3", "وسوم اللجنة", "وسوم اختيارية لتنظيم مهام اللجنة.", field("الوسوم المعتمدة — سطر لكل وسم", textarea("catalog_tags", (c.config?.tags || []).join("\n"), 3), true)) : ""}${actions("حفظ اللجنة وربط الوصول")}</form>`,
       async (fd, f) => {
         const b = {
           ...formData(fd),
@@ -713,14 +707,6 @@
               .split("\n")
               .map((x) => x.trim())
               .filter(Boolean),
-            budgetLines: [...f.querySelectorAll("[data-budget-line]")].map(
-              (row) => ({
-                id: row.dataset.budgetLine,
-                name: row.querySelector("[name=line_name]").value,
-                budget: row.querySelector("[name=line_budget]").value,
-                active: row.querySelector("[name=line_active]").checked,
-              }),
-            ),
           };
         } else {
           delete b.manager_id;
@@ -788,7 +774,7 @@
     if (!access)
       $("#modalBody")
         .querySelectorAll(
-          "#committeeMembers input,#committeeMembers select,#committeeMembers button,#budgetCatalog input",
+          "#committeeMembers input,#committeeMembers select,#committeeMembers button",
         )
         .forEach((x) => (x.disabled = true));
   }
@@ -1049,14 +1035,10 @@
     const approved = es.filter((e) => e.status === "approved"),
       groups = new Map();
     for (const e of approved) {
-      const key =
-        (e.meta.committee_id || "") +
-        "|" +
-        (e.meta.budget_line_id || e.category);
+      const key = e.meta.committee_id || e.project_id || "historical";
       if (!groups.has(key))
         groups.set(key, {
           committee: expenseCommittee(e)?.name || "سجل سابق",
-          line: e.meta.budget_line_name || e.category,
           total: 0,
           paid: 0,
           count: 0,
@@ -1066,12 +1048,11 @@
       g.paid += e.paid;
       g.count++;
     }
-    return `<section class="panel"><div class="panel-header"><h2>أين صُرفت الميزانية؟</h2><span class="muted">المصاريف التي اجتازت الاعتمادين فقط</span></div>${
+    return `<section class="panel"><div class="panel-header"><h2>توزيع المصروفات على اللجان</h2><span class="muted">المصاريف التي اجتازت الاعتمادين فقط</span></div>${
       groups.size
         ? table(
             [
               "اللجنة",
-              "بند الصرف",
               "عدد المصاريف",
               "المعتمد — ر.س",
               "المسدد — ر.س",
@@ -1081,7 +1062,7 @@
               .sort((a, b) => b.total - a.total)
               .map(
                 (g) =>
-                  `<tr><td>${esc(g.committee)}</td><td>${esc(g.line)}</td><td>${num(g.count)}</td><td>${cash(g.total)}</td><td>${cash(g.paid)}</td><td>${cash(g.total - g.paid)}</td></tr>`,
+                  `<tr><td>${esc(g.committee)}</td><td>${num(g.count)}</td><td>${cash(g.total)}</td><td>${cash(g.paid)}</td><td>${cash(g.total - g.paid)}</td></tr>`,
               ),
           )
         : empty(
@@ -1112,7 +1093,7 @@
           ? table(
               [
                 "المصروف",
-                "اللجنة / البند",
+                "اللجنة",
                 "مصدر الدفع",
                 "المبلغ — ر.س",
                 "المرحلة الحالية",
@@ -1120,7 +1101,7 @@
               ],
               es.map(
                 (e) =>
-                  `<tr><td><button class="text-link" data-action="expense" data-id="${e.id}">${esc(e.title)}</button><div class="task-sub">${date(e.date)} · ${esc(e.number || "دون رقم")}</div></td><td>${esc(expenseCommittee(e)?.name || "يحتاج ربطًا بلجنة")}<small class="task-sub">${esc(e.meta.budget_line_name || e.category || "غير محدد")}</small></td><td>${esc(fundingNames[e.meta.funding_source] || "سجل سابق")}</td><td>${cash(e.amount)}</td><td><span class="pill ${e.status === "approved" ? "green" : "amber"}">${esc(settlementName(e))}</span></td><td>${e.status === "pending" ? esc(person(dueReviewer(e))) : e.status === "approved" && e.paid < e.amount ? "بانتظار توثيق السداد" : "—"}</td></tr>`,
+                  `<tr><td><button class="text-link" data-action="expense" data-id="${e.id}">${esc(e.title)}</button><div class="task-sub">${date(e.date)} · ${esc(e.number || "دون رقم")}</div></td><td>${esc(expenseCommittee(e)?.name || "يحتاج ربطًا بلجنة")}${e.meta.budget_line_name || e.category ? `<small class="task-sub">تصنيف سابق: ${esc(e.meta.budget_line_name || e.category)}</small>` : ""}</td><td>${esc(fundingNames[e.meta.funding_source] || "سجل سابق")}</td><td>${cash(e.amount)}</td><td><span class="pill ${e.status === "approved" ? "green" : "amber"}">${esc(settlementName(e))}</span></td><td>${e.status === "pending" ? esc(person(dueReviewer(e))) : e.status === "approved" && e.paid < e.amount ? "بانتظار توثيق السداد" : "—"}</td></tr>`,
               ),
             )
           : empty(
@@ -1883,15 +1864,13 @@
         S.committees.some(
           (c) =>
             c.project_id === p.id &&
-            (!c.manager_id ||
-              !c.config?.second_approver_id ||
-              !c.config?.budgetLines?.length),
+            (!c.manager_id || !c.config?.second_approver_id),
         ),
       )
     )
       $("#main").insertAdjacentHTML(
         "afterbegin",
-        '<div class="setup-notice"><strong>أكمل ربط الاعتمادات</strong><span>من صلاحيات الأعضاء امنح حق الاعتماد، ثم حدد مدير اللجنة والمعتمد الثاني وبنود الصرف من إعدادات اللجنة.</span><button class="button compact" data-page="projects">المشاريع</button><button class="button compact" data-page="committees">اللجان</button></div>',
+        '<div class="setup-notice"><strong>أكمل ربط الاعتمادات</strong><span>من صلاحيات الأعضاء امنح حق الاعتماد، ثم حدد مدير اللجنة والمعتمد الثاني من إعدادات اللجنة.</span><button class="button compact" data-page="projects">المشاريع</button><button class="button compact" data-page="committees">اللجان</button></div>',
       );
   }
   const field = (label, content, full = false) => {
@@ -2935,8 +2914,8 @@
       e.id ? "استكمال طلب المصروف" : "رفع مصروف أو مطالبة",
       `<form class="form-grid expense-editor">${part(
         "1",
-        "اللجنة وبند الصرف",
-        "بند الصرف هو التصنيف المعتمد داخل ميزانية لجنتك، مثل الضيافة أو النقل. ربط المصروف بمهمة اختياري.",
+        "اللجنة وتفاصيل المصروف",
+        "اختر اللجنة واكتب وصف المصروف وأرفق إثباته. ربط المصروف بمهمة اختياري.",
         `${field(
           "لجنة المصروف *",
           select(
@@ -2946,7 +2925,7 @@
             e.id || cs.length === 1 ? "disabled" : "required",
           ),
           true,
-        )}${field("بند الصرف *", select("budget_line_id", [["", "اختر بندًا معتمدًا"], ...(c.config?.budgetLines || []).filter((l) => l.active).map((l) => [l.id, l.name + (l.budget ? " · المخصص " + cash(l.budget) + " ر.س" : "")])], e.meta.budget_line_id || "", "required"))}${field("المهمة المرتبطة — اختياري", select("task_id", [["", "مصروف للجنة دون مهمة محددة"], ...S.tasks.filter((t) => expenseTaskAccess(t, c)).map((t) => [t.id, t.title])], e.meta.task_id || linked?.id || ""))}${field("وصف المصروف *", input("title", e.title || "", "text", 'required placeholder="مثال: وجبات ضيافة اليوم الأول"'), true)}${field("المورد — إن وجد", select("supplier_id", [["", "لا يوجد مورد مسجل"], ...S.suppliers.filter((s) => s.meta?.status !== "suspended").map((s) => [s.id, s.name])], e.supplier_id || ""))}${field("رقم الفاتورة / الإيصال", input("number", e.number || ""))}${field("الإجمالي شامل الضريبة — ر.س *", input("amount", e.amount === undefined ? "" : e.amount / 100, "number", 'required min="0.01" step="0.01"'))}${field("الضريبة ضمن الإجمالي — ر.س", input("tax", (e.tax || 0) / 100, "number", 'min="0" step="0.01"'))}${field("تاريخ الفاتورة أو الدفع *", input("date", e.date, "date", "required"))}`,
+        )}${field("المهمة المرتبطة — اختياري", select("task_id", [["", "مصروف للجنة دون مهمة محددة"], ...S.tasks.filter((t) => expenseTaskAccess(t, c)).map((t) => [t.id, t.title])], e.meta.task_id || linked?.id || ""))}${field("وصف المصروف *", input("title", e.title || "", "text", 'required placeholder="مثال: وجبات ضيافة اليوم الأول"'), true)}${field("المورد — إن وجد", select("supplier_id", [["", "لا يوجد مورد مسجل"], ...S.suppliers.filter((s) => s.meta?.status !== "suspended").map((s) => [s.id, s.name])], e.supplier_id || ""))}${field("رقم الفاتورة / الإيصال", input("number", e.number || ""))}${field("الإجمالي شامل الضريبة — ر.س *", input("amount", e.amount === undefined ? "" : e.amount / 100, "number", 'required min="0.01" step="0.01"'))}${field("الضريبة ضمن الإجمالي — ر.س", input("tax", (e.tax || 0) / 100, "number", 'min="0" step="0.01"'))}${field("تاريخ الفاتورة أو الدفع *", input("date", e.date, "date", "required"))}`,
       )}${part(
         "2",
         "من أين دُفع المبلغ؟",
@@ -3076,12 +3055,6 @@
       const cc = S.committees.find(
         (c) => c.id === f.querySelector("[name=committee_id]").value,
       );
-      f.querySelector("[name=budget_line_id]").innerHTML =
-        '<option value="">اختر بندًا معتمدًا</option>' +
-        (cc.config?.budgetLines || [])
-          .filter((l) => l.active)
-          .map((l) => `<option value="${l.id}">${esc(l.name)}</option>`)
-          .join("");
       f.querySelector("[name=task_id]").innerHTML =
         '<option value="">دون ربط بمهمة</option>' +
         S.tasks
@@ -3122,7 +3095,7 @@
         can("expenses", "approve", e);
     modal(
       "ملف المصروف",
-      `<div class="summary-banner"><div><h2>${esc(e.title)}</h2><p>${esc(e.project_title || projectName(e.project_id))} / ${esc(c?.name || "يحتاج ربطًا بلجنة")}</p><span class="pill">${esc(settlementName(e))}</span></div><strong class="asset-quantity">${cash(e.amount)} <small>ر.س</small></strong></div><div class="detail-meta"><span>بند الصرف</span><strong>${esc(e.meta.budget_line_name || e.category || "—")}</strong><span>صاحب المصروف</span><strong>${esc(person(e.meta.claimant_id || e.created_by))}</strong><span>مصدر الدفع</span><strong>${esc(fundingNames[e.meta.funding_source] || "سجل سابق يحتاج مراجعة")}</strong><span>العهدة المرتبطة</span><strong>${esc(S.advances.find((a) => a.id === e.meta.advance_id)?.title || "لا توجد")}</strong><span>المهمة — اختياري</span><strong>${esc(S.tasks.find((t) => t.id === e.meta.task_id)?.title || "مصروف على اللجنة دون مهمة")}</strong><span>المورد</span><strong>${esc(S.suppliers.find((s) => s.id === e.supplier_id)?.name || "—")}</strong><span>رقم الإثبات / تاريخه</span><strong>${esc(e.number || "—")} / ${date(e.date)}</strong><span>الضريبة ضمن الإجمالي</span><strong>${cash(e.tax)}</strong><span>المسدد / المتبقي</span><strong>${cash(e.paid)} / ${e.amount_hidden ? "محجوب" : cash(e.amount - e.paid)}</strong></div><div class="approval-route">${route.map((member, i) => `<span class="${reviewer === member && e.status === "pending" ? "current" : ""}">${i + 1} · ${i ? "المعتمد الثاني" : "مدير اللجنة"}<strong>${member ? esc(person(member)) : "لم يُعيّن"}</strong><small>${(e.meta.approvals || []).some((a) => a.member_id === member && a.decision === "approve") ? "اعتمد" : "لم يعتمد بعد"}</small></span>`).join("")}</div>${e.meta.notes ? `<p class="detail-description">${esc(e.meta.notes)}</p>` : ""}<section class="detail-section"><h3>الفاتورة وإثباتات الدفع والسداد</h3>${fileList(files)}</section><section class="detail-section"><h3>سجل القرارات</h3>${(e.meta.approvals || []).map((a) => `<div class="activity"><strong>${esc(person(a.member_id))}</strong> · ${a.decision === "approve" ? "اعتمد المصروف" : "أعاده للاستكمال"} · ${date(a.at || a.date)}<p>${esc(a.note || a.reason || "")}</p></div>`).join("") || '<p class="muted">لم يصدر قرار بعد.</p>'}</section><section class="detail-section"><h3>السداد والتصفية</h3>${
+      `<div class="summary-banner"><div><h2>${esc(e.title)}</h2><p>${esc(e.project_title || projectName(e.project_id))} / ${esc(c?.name || "يحتاج ربطًا بلجنة")}</p><span class="pill">${esc(settlementName(e))}</span></div><strong class="asset-quantity">${cash(e.amount)} <small>ر.س</small></strong></div><div class="detail-meta">${e.meta.budget_line_name || e.category ? `<span>تصنيف سابق</span><strong>${esc(e.meta.budget_line_name || e.category)}</strong>` : ""}<span>صاحب المصروف</span><strong>${esc(person(e.meta.claimant_id || e.created_by))}</strong><span>مصدر الدفع</span><strong>${esc(fundingNames[e.meta.funding_source] || "سجل سابق يحتاج مراجعة")}</strong><span>العهدة المرتبطة</span><strong>${esc(S.advances.find((a) => a.id === e.meta.advance_id)?.title || "لا توجد")}</strong><span>المهمة — اختياري</span><strong>${esc(S.tasks.find((t) => t.id === e.meta.task_id)?.title || "مصروف على اللجنة دون مهمة")}</strong><span>المورد</span><strong>${esc(S.suppliers.find((s) => s.id === e.supplier_id)?.name || "—")}</strong><span>رقم الإثبات / تاريخه</span><strong>${esc(e.number || "—")} / ${date(e.date)}</strong><span>الضريبة ضمن الإجمالي</span><strong>${cash(e.tax)}</strong><span>المسدد / المتبقي</span><strong>${cash(e.paid)} / ${e.amount_hidden ? "محجوب" : cash(e.amount - e.paid)}</strong></div><div class="approval-route">${route.map((member, i) => `<span class="${reviewer === member && e.status === "pending" ? "current" : ""}">${i + 1} · ${i ? "المعتمد الثاني" : "مدير اللجنة"}<strong>${member ? esc(person(member)) : "لم يُعيّن"}</strong><small>${(e.meta.approvals || []).some((a) => a.member_id === member && a.decision === "approve") ? "اعتمد" : "لم يعتمد بعد"}</small></span>`).join("")}</div>${e.meta.notes ? `<p class="detail-description">${esc(e.meta.notes)}</p>` : ""}<section class="detail-section"><h3>الفاتورة وإثباتات الدفع والسداد</h3>${fileList(files)}</section><section class="detail-section"><h3>سجل القرارات</h3>${(e.meta.approvals || []).map((a) => `<div class="activity"><strong>${esc(person(a.member_id))}</strong> · ${a.decision === "approve" ? "اعتمد المصروف" : "أعاده للاستكمال"} · ${date(a.at || a.date)}<p>${esc(a.note || a.reason || "")}</p></div>`).join("") || '<p class="muted">لم يصدر قرار بعد.</p>'}</section><section class="detail-section"><h3>السداد والتصفية</h3>${
         payments.length
           ? table(
               ["التاريخ", "المبلغ — ر.س", "المرجع"],
@@ -4685,7 +4658,7 @@
         break;
       case "approvals":
         body =
-          '<div class="notice full"><strong>مسار المهام:</strong> المنفذ يرفع الإنجاز، ومدير اللجنة يراجعه ويعتمده أو يعيده للاستكمال.<br><strong>مسار المصروف:</strong> مدير اللجنة ثم المعتمد الثاني المحدد للجنة، ويجب أن يكونا شخصين مختلفين.<br>لا يختار العضو المعتمدين. تحددهم الإدارة من صلاحيات المستخدمين وإعداد اللجنة. الفاتورة أو إثبات الدفع مطلوب للإرسال.</div><div class="full"><button type="button" class="button" data-page="projects">إعدادات المشاريع</button><button type="button" class="button" data-page="committees">إعدادات اللجان والبنود</button></div>';
+          '<div class="notice full"><strong>مسار المهام:</strong> المنفذ يرفع الإنجاز، ومدير اللجنة يراجعه ويعتمده أو يعيده للاستكمال.<br><strong>مسار المصروف:</strong> مدير اللجنة ثم المعتمد الثاني المحدد للجنة، ويجب أن يكونا شخصين مختلفين.<br>لا يختار العضو المعتمدين. تحددهم الإدارة من صلاحيات المستخدمين وإعداد اللجنة. الفاتورة أو إثبات الدفع مطلوب للإرسال.</div><div class="full"><button type="button" class="button" data-page="projects">إعدادات المشاريع</button><button type="button" class="button" data-page="committees">إعدادات اللجان</button></div>';
         break;
       case "guide":
         body =
@@ -4884,7 +4857,7 @@
   function sanadChatView() {
     const connected = S.integrations?.ai;
     $("#assistantBody").innerHTML =
-      `<div class="sanad-context"><span>${esc(labels[sanadContext.page] || "الديوان")}</span><strong>${esc(sanadContext.task_id ? S.tasks.find((t) => t.id === sanadContext.task_id)?.title || "" : sanadContext.committee_id ? committeeName(sanadContext.committee_id) : sanadContext.project_id ? projectName(sanadContext.project_id) : "بحسب وصولك")}</strong></div><div id="sanadMessages" class="sanad-messages" aria-live="polite">${sanadTurns.length ? sanadTurns.map((t) => `<div class="sanad-bubble from-member">${esc(t.message)}</div><div class="sanad-bubble from-sanad"><span class="eyebrow">سَنَد</span><p>${esc(t.reply)}</p>${t.proposal?.resource ? `<button class="button compact" data-action="sanad-draft" data-id="${esc(t.id)}">مراجعة ${esc({ tasks: "المهمة", expenses: "المصروف", suppliers: "المورد", assets: "الأصل", guides: "دليل التنفيذ" }[t.proposal.resource])}</button>` : ""}<small>${t.created ? date(t.created.slice(0, 10)) : "الآن"}</small></div>`).join("") : `<div class="sanad-welcome">${sanadSymbol}<span class="eyebrow">سَنَد الديوان</span><h2>ما الذي ننجزه اليوم؟</h2><p>من متابعة اللجان إلى تفاصيل المهمة،<br>ابدأ بسؤالك أو بما تريد إنجازه.</p></div>`}</div><div class="sanad-history-actions"><button type="button" class="text-link" data-action="sanad-clear">حذف محادثاتي</button><span>المحادثة ضمن النطاق الحالي</span></div><div class="sanad-suggestions">${["وش أعلى بند صرفنا عليه؟", "جهّز لي مهمة لاستقبال الضيوف", "أبغى أضيف مورد خيام"].map((q) => `<button type="button" data-action="sanad-suggest" data-prompt="${esc(q)}">${q}</button>`).join("")}</div>${!connected ? '<div class="sanad-offline">المحادثة والتحليل بانتظار تفعيل خدمة الذكاء الاصطناعي. يمكنك الآن فتح النماذج وتجهيز دليل التنفيذ.</div>' : ""}<form id="sanadChatForm" class="sanad-composer"><textarea name="message" rows="2" maxlength="6000" required aria-label="رسالتك إلى سَنَد" placeholder="اسأل، أو صف ما تريد إنجازه…"></textarea><div><button class="icon-btn" type="button" data-action="sanad-voice" aria-label="تسجيل رسالة صوتية">${icon("mic")}</button><span id="sanadVoiceState"></span><button class="button button-dark" type="submit">إرسال ${icon("arrow", 16)}</button></div><p class="form-error" hidden></p></form><details class="sanad-quick"><summary>أدوات الديوان <span>المهام · المصاريف · الوثائق</span></summary><div class="sanad-tools">${[
+      `<div class="sanad-context"><span>${esc(labels[sanadContext.page] || "الديوان")}</span><strong>${esc(sanadContext.task_id ? S.tasks.find((t) => t.id === sanadContext.task_id)?.title || "" : sanadContext.committee_id ? committeeName(sanadContext.committee_id) : sanadContext.project_id ? projectName(sanadContext.project_id) : "بحسب وصولك")}</strong></div><div id="sanadMessages" class="sanad-messages" aria-live="polite">${sanadTurns.length ? sanadTurns.map((t) => `<div class="sanad-bubble from-member">${esc(t.message)}</div><div class="sanad-bubble from-sanad"><span class="eyebrow">سَنَد</span><p>${esc(t.reply)}</p>${t.proposal?.resource ? `<button class="button compact" data-action="sanad-draft" data-id="${esc(t.id)}">مراجعة ${esc({ tasks: "المهمة", expenses: "المصروف", suppliers: "المورد", assets: "الأصل", guides: "دليل التنفيذ" }[t.proposal.resource])}</button>` : ""}<small>${t.created ? date(t.created.slice(0, 10)) : "الآن"}</small></div>`).join("") : `<div class="sanad-welcome">${sanadSymbol}<span class="eyebrow">سَنَد الديوان</span><h2>ما الذي ننجزه اليوم؟</h2><p>من متابعة اللجان إلى تفاصيل المهمة،<br>ابدأ بسؤالك أو بما تريد إنجازه.</p></div>`}</div><div class="sanad-history-actions"><button type="button" class="text-link" data-action="sanad-clear">حذف محادثاتي</button><span>المحادثة ضمن النطاق الحالي</span></div><div class="sanad-suggestions">${["كم صرفت كل لجنة؟", "جهّز لي مهمة لاستقبال الضيوف", "أبغى أضيف مورد خيام"].map((q) => `<button type="button" data-action="sanad-suggest" data-prompt="${esc(q)}">${q}</button>`).join("")}</div>${!connected ? '<div class="sanad-offline">المحادثة والتحليل بانتظار تفعيل خدمة الذكاء الاصطناعي. يمكنك الآن فتح النماذج وتجهيز دليل التنفيذ.</div>' : ""}<form id="sanadChatForm" class="sanad-composer"><textarea name="message" rows="2" maxlength="6000" required aria-label="رسالتك إلى سَنَد" placeholder="اسأل، أو صف ما تريد إنجازه…"></textarea><div><button class="icon-btn" type="button" data-action="sanad-voice" aria-label="تسجيل رسالة صوتية">${icon("mic")}</button><span id="sanadVoiceState"></span><button class="button button-dark" type="submit">إرسال ${icon("arrow", 16)}</button></div><p class="form-error" hidden></p></form><details class="sanad-quick"><summary>أدوات الديوان <span>المهام · المصاريف · الوثائق</span></summary><div class="sanad-tools">${[
         ["tasks", "task-new", "مهمة"],
         ["expenses", "expense-new", "مصروف وفاتورة"],
         ["suppliers", "supplier-new", "مورد"],
@@ -5749,9 +5722,6 @@
 
       case "join-dيوان":
         phoneForm(true);
-        break;
-      case "budget-add":
-        $("#budgetCatalog").insertAdjacentHTML("beforeend", budgetRow());
         break;
       case "task-transition":
         await saveTaskStatus(

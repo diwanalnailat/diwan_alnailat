@@ -161,7 +161,7 @@ test("conversation: scoped mentions, replies, staged attachments and durable out
     a.DB.close();
   }
 });
-test("expenses: committee context, controlled budget lines, receipt required, two distinct approvers and pending reimbursement", async () => {
+test("expenses: committee context, obsolete classification ignored, receipt required, two distinct approvers and pending reimbursement", async () => {
   const a = await fixture();
   try {
     const basic = {
@@ -176,16 +176,16 @@ test("expenses: committee context, controlled budget lines, receipt required, tw
       status: "pending",
     };
     assert.equal((await a.req("expenses/save", basic, a.member)).status, 400);
-    assert.equal(
-      (
-        await a.req(
-          "expenses/save",
-          { ...basic, status: "draft", budget_line_id: "freeform" },
-          a.member,
-        )
-      ).status,
-      400,
+    const draft = await a.req(
+      "expenses/save",
+      { ...basic, status: "draft", budget_line_id: "freeform", category: "forged classification" },
+      a.member,
     );
+    ok(draft);
+    const draftRow = await a.DB.prepare("SELECT * FROM nl_expenses WHERE id=?").bind(draft.data.id).first();
+    assert.equal(draftRow.category, "");
+    assert.equal(JSON.parse(draftRow.meta).budget_line_id, undefined);
+    assert.equal(JSON.parse(draftRow.meta).budget_line_name, undefined);
     const id = await saveExpense(a, {
       route: [a.member.memberId],
       amount: "115.50",
@@ -266,7 +266,7 @@ test("expenses: committee context, controlled budget lines, receipt required, tw
       ).status,
       409,
     );
-    assert.equal((await state(a, a.member)).expenses[0].paid, 10000);
+    assert.equal((await state(a, a.member)).expenses.find((e) => e.id === id).paid, 10000);
   } finally {
     a.DB.close();
   }

@@ -26,9 +26,14 @@ test("actual interface and server: heritage entry, connected membership, task st
   };
   let pendingRequests = 0;
   let locationDelay;
+  let lastCommitteeSave, lastExpenseSave;
   w.fetch = async (path, opts = {}) => {
     pendingRequests++;
     try {
+      if (path === "/api/committees/save")
+        lastCommitteeSave = JSON.parse(opts.body);
+      if (path === "/api/expenses/save")
+        lastExpenseSave = JSON.parse(opts.body);
       if (String(path).endsWith("/location/resolve") && locationDelay)
         await locationDelay;
       const headers = {
@@ -297,8 +302,11 @@ test("actual interface and server: heritage entry, connected membership, task st
     await click("[data-page=committees]");
     await click("[data-action=committee-edit]");
     assert.equal(val("second_approver_id", "owner").tagName, "SELECT");
-    assert.equal(d.querySelectorAll("[data-budget-line]").length, 1);
+    assert.equal(d.querySelectorAll("[data-budget-line]").length, 0);
+    assert.equal(d.querySelector("[data-action=budget-add]"), null);
+    assert.ok(d.querySelector("[name=catalog_tags]"));
     await submit();
+    assert.equal(Object.hasOwn(lastCommitteeSave.config, "budgetLines"), false);
     assert.equal(
       (await state(a)).committees[0].config.budgetLines[0].budget,
       1000000,
@@ -344,7 +352,8 @@ test("actual interface and server: heritage entry, connected membership, task st
     assert.equal(task.status, "doing");
     await click("[data-page=expenses]");
     await click("[data-action=expense-new]");
-    assert.equal(d.querySelector("[name=budget_line_id]").tagName, "SELECT");
+    assert.equal(d.querySelector("[name=budget_line_id]"), null);
+    assert.equal(d.querySelector("#modalBody [name=category]"), null);
     assert.equal(d.querySelectorAll("[name=reviewer]").length, 0);
     assert.ok(d.querySelector("[name=invoiceFiles]"));
     assert.ok(d.querySelector("[name=cameraInvoice]"));
@@ -366,7 +375,6 @@ test("actual interface and server: heritage entry, connected membership, task st
     val("title", "مصروف الضيافة");
     val("amount", "120");
     val("tax", "0");
-    val("budget_line_id", "hospitality");
     val("date", "2027-01-10");
     // jsdom does not populate FormData from a programmatically assigned FileList; inject the file into the form serialization.
     const Native = w.FormData;
@@ -385,7 +393,10 @@ test("actual interface and server: heritage entry, connected membership, task st
       (e) => e.title === "مصروف الضيافة",
     );
     assert.ok(expense);
-    assert.equal(expense.meta.budget_line_id, "hospitality");
+    assert.equal(Object.hasOwn(lastExpenseSave, "budget_line_id"), false);
+    assert.equal(Object.hasOwn(expense.meta, "budget_line_id"), false);
+    assert.equal(Object.hasOwn(expense.meta, "budget_line_name"), false);
+    assert.equal(expense.category, "");
     assert.equal(expense.meta.funding_source, "personal");
     // The owner created this draft: self-approval is replaced by the configured delegate.
     // No delegate exists in this fixture, so submitting requires administrative configuration.
@@ -566,6 +577,9 @@ test("actual interface and server: heritage entry, connected membership, task st
     sharedModal.scrollTop = 640;
     d.querySelector("#modalBody").scrollTop = 320;
     await click("[data-action=committee-new]");
+    assert.equal(d.querySelector("#budgetCatalog"), null);
+    assert.equal(d.querySelector("[data-action=budget-add]"), null);
+    assert.ok(d.querySelector("[name=catalog_tags]"));
     assert.equal(
       sharedModal.scrollTop,
       0,

@@ -318,7 +318,8 @@
             "سجل سابق",
         },
         {
-          label: "بند الصرف",
+          label: "تصنيف سابق",
+          // Retained only for records classified before the simplified workflow.
           get: (r) => r.meta?.budget_line_name || r.category,
         },
         {
@@ -425,7 +426,7 @@
         cols: [
           C("المصروف", "title", "text", 35),
           {
-            label: "البند",
+            label: "تصنيف سابق",
             get: (e) => e.meta?.budget_line_name || e.category,
           },
           {

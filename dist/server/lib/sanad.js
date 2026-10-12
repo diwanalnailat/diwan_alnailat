@@ -63,7 +63,6 @@ const fields = {
     "date",
     "supplier_id",
     "committee_id",
-    "budget_line_id",
     "project_id",
   ],
   guides: [
@@ -185,11 +184,6 @@ function snapshot(st, context) {
       name: c.name,
       project_id: c.project_id,
       manager_id: c.manager_id,
-      budget_lines: c.config?.budgetLines?.map((l) => ({
-        id: l.id,
-        name: l.name,
-        active: l.active,
-      })),
     })),
     people: st.people,
     suppliers: st.suppliers

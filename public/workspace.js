@@ -324,12 +324,9 @@
         resource: "committees",
         page: "committees",
         title: "جاهزية اللجان",
-        note: "لجان تحتاج مديرًا أو معتمدًا ثانيًا أو بنود صرف",
+        note: "لجان تحتاج مديرًا أو معتمدًا ثانيًا",
         count: records.committees.filter(
-          (record) =>
-            !record.manager_id ||
-            !record.config?.second_approver_id ||
-            !list(record.config?.budgetLines).length,
+          (record) => !record.manager_id || !record.config?.second_approver_id,
         ).length,
         severity: "warning",
       },

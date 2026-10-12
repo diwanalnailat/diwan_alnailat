@@ -94,9 +94,6 @@ export function agentRecord(resource, r) {
     return {
       ...base,
       manager_id: r.manager_id,
-      budget_lines: r.config?.budgetLines?.map((l) =>
-        pick(l, ["id", "name", "active"]),
-      ),
     };
   return { ...base, description: r.description, season: r.season };
 }
@@ -220,13 +217,6 @@ export function validateDraft(resource, v, st, c) {
     !k.members.some((m) => m.id === v.assignee_id)
   )
     throw integrationError("المنفذ ليس ضمن اللجنة");
-  if (
-    v.budget_line_id &&
-    !k?.config?.budgetLines?.some(
-      (l) => l.id === v.budget_line_id && l.active !== false,
-    )
-  )
-    throw integrationError("بند صرف غير متاح");
   if (v.type && !TASK_TYPES.some((t) => t.id === v.type))
     throw integrationError("نوع مهمة غير متاح");
   for (const key of ["start", "due", "date", "rental_start", "rental_end"])
@@ -257,7 +247,7 @@ export function validateDraft(resource, v, st, c) {
       "due",
       "outcome",
     ],
-    expenses: ["title", "committee_id", "budget_line_id", "amount", "date"],
+    expenses: ["title", "committee_id", "amount", "date"],
     suppliers: ["name"],
     assets: ["name", "quantity", "ownership"],
     guides: ["title", "project_id", "objective", "steps"],

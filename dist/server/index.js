@@ -1472,22 +1472,31 @@ async function handle(req, env) {
     }
     if (manager && !newManager) await activeMember(db, manager);
     const statuses = TASK_FLOW;
-    const cfg = b.config || committeeConfig(old);
+    if (
+      b.config !== undefined &&
+      (!b.config || typeof b.config !== "object" || Array.isArray(b.config))
+    )
+      fail("راجع إعدادات اللجنة");
+    const cfg = { ...committeeConfig(old), ...b.config };
     if (JSON.stringify(cfg) !== JSON.stringify(committeeConfig(old))) {
       c.need("users", "manage");
-      if (!Array.isArray(cfg.budgetLines) || cfg.budgetLines.length > 100)
-        fail("راجع بنود الصرف");
-      cfg.budgetLines = cfg.budgetLines.map((l) => ({
-        id: string(l.id, 80),
-        name: string(l.name, 120),
-        budget: money(l.budget || 0, true),
-        active: l.active !== false,
-      }));
-      if (
-        new Set(cfg.budgetLines.map((l) => l.id)).size !==
-        cfg.budgetLines.length
-      )
-        fail("بند صرف مكرر");
+      // Older clients may still send this catalog. Omitted historical amounts
+      // are already in halala and must never be converted or cleared on edit.
+      if (b.config?.budgetLines !== undefined) {
+        if (!Array.isArray(cfg.budgetLines) || cfg.budgetLines.length > 100)
+          fail("راجع بنود الصرف");
+        cfg.budgetLines = cfg.budgetLines.map((l) => ({
+          id: string(l.id, 80),
+          name: string(l.name, 120),
+          budget: money(l.budget || 0, true),
+          active: l.active !== false,
+        }));
+        if (
+          new Set(cfg.budgetLines.map((l) => l.id)).size !==
+          cfg.budgetLines.length
+        )
+          fail("بند صرف مكرر");
+      }
       if (!Array.isArray(cfg.tags || [])) fail("راجع قائمة الوسوم");
       cfg.tags = (cfg.tags || []).slice(0, 30).map((t) => string(t, 60));
     }
@@ -2790,13 +2799,6 @@ async function handle(req, env) {
       fail("اللجنة المثبتة على الطلب لا تتغير");
     if (!fieldVisible(c.u, "expenses", "amount", candidate, c.bundles))
       fail("المبلغ غير متاح لك", 403);
-    const line = committeeConfig(committee).budgetLines.find(
-      (l) => l.id === b.budget_line_id && l.active !== false,
-    );
-    if (!line)
-      fail(
-        "اختر بند صرف مفعّلًا من بنود اللجنة؛ يجهزها الأدمن من إدارة اللجنة",
-      );
     const claimant = b.claimant_id || parse(old?.meta).claimant_id || c.u.id;
     if (claimant !== c.u.id) c.need("users", "manage");
     await activeMember(db, claimant);
@@ -2898,8 +2900,6 @@ async function handle(req, env) {
       ...parse(old?.meta),
       committee_id: cid,
       task_id: b.task_id || null,
-      budget_line_id: line.id,
-      budget_line_name: line.name,
       claimant_id: claimant,
       collaborators: [claimant],
       funding_source: source,
@@ -2929,7 +2929,7 @@ async function handle(req, env) {
       b.supplier_id || null,
       string(b.title, 250),
       string(b.number, 120, true) || null,
-      line.name,
+      old?.category || "",
       amount,
       tax,
       validDate(b.date),
