@@ -42,8 +42,8 @@ function stylesAtWidth(width) {
   return dom;
 }
 
-test("phone navigation has one in-flow menu control and wrapping header/actions", () => {
-  for (const width of [320, 375, 430]) {
+test("phone navigation keeps accessible actions and a shrinking title in one row", () => {
+  for (const width of [320, 375, 430, 640]) {
     const dom = stylesAtWidth(width),
       w = dom.window,
       d = w.document;
@@ -69,15 +69,63 @@ test("phone navigation has one in-flow menu control and wrapping header/actions"
       assert.ok(parseFloat(menuStyle.minHeight) >= 44);
       assert.equal(
         w.getComputedStyle(d.querySelector(".topbar")).flexWrap,
-        "wrap",
+        "nowrap",
       );
       assert.equal(
         w.getComputedStyle(d.querySelector(".top-actions")).flexWrap,
-        "wrap",
+        "nowrap",
       );
       assert.equal(
         w.getComputedStyle(d.querySelector(".breadcrumb")).whiteSpace,
-        "normal",
+        "nowrap",
+      );
+      const title = d.querySelector("#crumb");
+      title.textContent = "A very long workspace page title";
+      assert.equal(w.getComputedStyle(title).textOverflow, "ellipsis");
+      assert.equal(parseFloat(w.getComputedStyle(title).minWidth), 0);
+      const actions = [
+        ...d.querySelectorAll(".top-actions > button:not(.search-trigger)"),
+      ];
+      let actionWidth = 0;
+      for (const button of actions) {
+        const style = w.getComputedStyle(button);
+        assert.ok(
+          button.getAttribute("aria-label"),
+          "compact buttons retain accessible names",
+        );
+        assert.equal(parseFloat(style.width), 44);
+        assert.equal(parseFloat(style.minHeight), 44);
+        assert.equal(style.flexShrink, "0");
+        actionWidth += parseFloat(style.width);
+      }
+      // Budget for all four actions (including Sanad when enabled), the menu,
+      // gaps and padding still leaves room for the title on the narrowest phone.
+      const bar = w.getComputedStyle(d.querySelector(".topbar"));
+      const actionGap = parseFloat(
+        w.getComputedStyle(d.querySelector(".top-actions")).gap,
+      );
+      const breadcrumbGap = parseFloat(
+        w.getComputedStyle(d.querySelector(".breadcrumb")).gap,
+      );
+      const reserved =
+        actionWidth +
+        actionGap * (actions.length - 1) +
+        44 +
+        breadcrumbGap +
+        parseFloat(bar.gap) +
+        parseFloat(bar.paddingLeft) +
+        parseFloat(bar.paddingRight);
+      assert.ok(
+        width - reserved >= 40,
+        `${width}: room for page title without wrapping`,
+      );
+      assert.equal(
+        w.getComputedStyle(d.querySelector(".quick-add-label")).display,
+        "none",
+      );
+      assert.equal(
+        w.getComputedStyle(d.querySelector(".sanad-brand-mark")).display,
+        "none",
       );
     } finally {
       dom.window.close();

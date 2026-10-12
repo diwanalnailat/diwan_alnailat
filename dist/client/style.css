@@ -74,21 +74,26 @@
 }
 @media (max-width: 640px) {
   .shell .topbar {
-    height: auto;
-    min-height: 76px;
-    padding: 12px 16px;
-    flex-wrap: wrap;
-    gap: 8px 12px;
+    height: 68px;
+    min-height: 68px;
+    padding: 12px;
+    flex-wrap: nowrap;
+    gap: 8px;
   }
   .shell .topbar .breadcrumb {
-    flex: 1 1 140px;
+    flex: 1 1 0%;
     min-width: 0;
-    white-space: normal;
-    overflow-wrap: anywhere;
+    gap: 8px;
+    white-space: nowrap;
+  }
+  .shell .topbar .breadcrumb strong {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .shell .topbar .top-actions {
-    flex: 0 1 auto;
-    flex-wrap: wrap;
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
     justify-content: flex-end;
     max-width: 100%;
     margin-inline-start: auto;
@@ -102,7 +107,27 @@
   }
   .shell .topbar .top-actions > .button,
   .shell .topbar .sanad-trigger {
+    flex: 0 0 44px;
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
     min-height: 44px;
+    padding: 0 !important;
+    gap: 0 !important;
+    justify-content: center;
+    border-radius: 10px;
+  }
+  .shell .topbar .icon-btn {
+    height: 44px;
+    border-radius: 10px;
+  }
+  .shell .topbar .sanad-brand-mark,
+  .shell .topbar .quick-add-label {
+    display: none;
+  }
+  .shell .topbar .quick-add-icon {
+    font-size: 24px;
+    line-height: 1;
   }
   .shell main .page-heading {
     align-items: stretch;
