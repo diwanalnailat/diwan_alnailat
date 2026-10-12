@@ -857,6 +857,59 @@
           ))
     );
   }
+  let rosterRequest = 0;
+  async function loadCommitteeRoster() {
+    const target = $("#committeeRoster");
+    if (!target) return;
+    const id = committee,
+      request = ++rosterRequest;
+    target.innerHTML =
+      '<p role="status" class="muted">جارٍ تحميل فريق اللجنة…</p>';
+    try {
+      const data = await api("committees/roster?id=" + encodeURIComponent(id));
+      if (request !== rosterRequest || !target.isConnected || id !== committee)
+        return;
+      const statuses = {
+        queued: "بانتظار الإرسال",
+        sending: "جارٍ الإرسال",
+        accepted: "قَبِل مزود واتساب الإرسال — الوصول غير مؤكد",
+        sent: "أُرسلت — الوصول غير مؤكد",
+        delivered: "وصلت",
+        read: "قُرئت",
+        retry: "بانتظار إعادة المحاولة",
+        needs_review: "تعذر تأكيد الإرسال — تحتاج مراجعة",
+        failed: "فشل الإرسال",
+        not_eligible: "لم تُرسل — لم تعد الدعوة مؤهلة",
+      };
+      const stamp = (value) =>
+        new Date(value).toLocaleString("ar-SA-u-nu-latn", {
+          dateStyle: "medium",
+          timeStyle: "short",
+        });
+      target.innerHTML = data.people.length
+        ? `<div class="committee-roster-list">${data.people
+            .map((u) => {
+              const invitation = u.messages?.[0]?.created;
+              const previous =
+                u.last_login &&
+                invitation &&
+                new Date(u.last_login) < new Date(invitation);
+              return `<article class="committee-roster-person"><div class="committee-roster-identity"><h3>${esc(u.name)}</h3><div class="committee-roster-roles">${u.roles.map((role) => `<span class="pill">${esc(role)}</span>`).join("")}${u.status !== "active" ? '<span class="pill">الحساب غير نشط</span>' : ""}</div></div>${data.can_track ? `<div><h4>رسائل واتساب</h4>${u.messages.length ? u.messages.map((message) => `<div class="committee-roster-message"><span class="pill ${["delivered", "read"].includes(message.status) ? "green" : ""}">${esc(statuses[message.status] || "حالة الإرسال غير مؤكدة")}</span><small>${esc(message.title)}</small><small>${esc(stamp(message.created))}</small></div>`).join("") : '<p class="muted">لا توجد رسالة مسجلة لهذه اللجنة</p>'}</div><div><h4>دخول المنصة</h4><span class="pill ${u.last_login && !previous ? "green" : ""}">${u.last_login ? (previous ? "لم يدخل بعد آخر دعوة" : "دخل المنصة") : "لا يوجد دخول مسجل"}</span>${u.last_login ? `<small>آخر دخول: ${esc(stamp(u.last_login))}</small>` : ""}</div>` : ""}</article>`;
+            })
+            .join(
+              "",
+            )}</div>${data.can_track ? '<p class="muted committee-roster-note">تُعرض أحدث رسالة لكل تعيين. «وصلت» و«قُرئت» بحسب تأكيد واتساب. الدخول يعني تسجيل الدخول إلى المنصة، وليس فتح صفحة اللجنة.</p>' : '<p class="muted">متابعة الرسائل والدخول متاحة لمن لديه صلاحية تعديل اللجنة.</p>'}`
+        : '<p class="muted">لم يُضف أشخاص إلى هذه اللجنة بعد.</p>';
+    } catch (error) {
+      if (request === rosterRequest && target.isConnected)
+        target.innerHTML = `<p role="alert">${esc(error.message || "تعذر تحميل فريق اللجنة")}</p>${btn("إعادة المحاولة", "committee-roster-refresh", "", "button-ghost")}`;
+    }
+  }
+  function committeeRosterPanel() {
+    return committee
+      ? `<section class="panel committee-roster" aria-labelledby="committeeRosterTitle"><div class="committee-roster-heading"><div><h2 id="committeeRosterTitle">فريق اللجنة</h2><p class="muted">المدراء والمشرفون والأعضاء وحالة التواصل معهم</p></div>${btn("تحديث الحالة", "committee-roster-refresh", "", "button-ghost")}</div><div id="committeeRoster" aria-live="polite"></div></section>`
+      : "";
+  }
   function tasksPage() {
     const tasks = filteredTasks(),
       views = [
@@ -922,6 +975,7 @@
             : "") +
           (mayCreate("tasks") ? btn("مهمة جديدة", "task-new") : ""),
       ) +
+      committeeRosterPanel() +
       `<section class="panel"><div class="tabs">${views.map(([id, name]) => `<button class="tab ${taskView === id ? "active" : ""}" data-action="task-view" data-view="${id}">${name}</button>`).join("")}</div><div class="toolbar"><div class="filters">${projectSelect()}${committeeSelect()}<select class="select-inline" data-filter="status" aria-label="الحالة"><option value="">كل الحالات</option>${boardStatuses()
         .map(
           (s) =>
@@ -1828,6 +1882,7 @@
     views.profile = () => DiwanViews.profile(workspaceContext());
     $("#main").dataset.animate = String(animate);
     $("#main").innerHTML = (views[page] || views.overview)();
+    if (page === "tasks" && committee) loadCommitteeRoster();
     if (animate) window.DiwanMotion?.enter($("#main"));
     if (page === "heritage") initHeritageMotion();
 
@@ -5917,6 +5972,9 @@
         break;
       case "committee-edit":
         committeeForm(id);
+        break;
+      case "committee-roster-refresh":
+        loadCommitteeRoster();
         break;
       case "committee-open":
         $("#modal").close();

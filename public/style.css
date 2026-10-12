@@ -6124,6 +6124,77 @@ body {
   max-width: 100%;
   min-width: 0;
 }
+.committee-roster {
+  margin-bottom: 24px;
+  padding: 24px;
+}
+.committee-roster-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.committee-roster-heading h2 {
+  margin: 0;
+  font-size: 20px;
+}
+.committee-roster-heading p {
+  margin-bottom: 0;
+}
+.committee-roster-heading .button {
+  min-height: 44px;
+  flex-shrink: 0;
+}
+.committee-roster-person {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 24px;
+  padding-block: 20px;
+  border-top: 1px solid var(--line);
+}
+.committee-roster-person :is(h3, h4) {
+  margin: 0 0 12px;
+  font-size: 14px;
+}
+.committee-roster-person h3 {
+  font-size: 16px;
+}
+.committee-roster-roles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.committee-roster :is(.pill, small, p, h3) {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.committee-roster small {
+  display: block;
+  margin-top: 8px;
+  line-height: 1.8;
+}
+.committee-roster-message + .committee-roster-message {
+  margin-top: 16px;
+}
+.committee-roster-note {
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+  margin-bottom: 0;
+}
+@media (max-width: 640px) {
+  .committee-roster {
+    padding: 16px;
+  }
+  .committee-roster-heading {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .committee-roster-person {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
+  }
+}
 .permission-targets .form-grid {
   margin-top: 20px;
 }

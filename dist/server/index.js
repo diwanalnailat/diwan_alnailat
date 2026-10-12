@@ -1,4 +1,5 @@
 import { resolveGoogleMaps } from "./lib/google-maps.js";
+import { committeeRoster } from "./lib/committee-roster.js";
 import {
   permissionCatalog,
   previewPermissions,
@@ -979,6 +980,8 @@ async function handle(req, env) {
   if (p === "/api/registration/request")
     fail("ابدأ بتوثيق الجوال عبر واتساب لإرسال طلب الانضمام", 400);
   const c = await context(req, env);
+  if (p === "/api/committees/roster" && req.method === "GET")
+    return json(await committeeRoster(db, c, url.searchParams.get("id")));
   if (p === "/api/permissions" && req.method === "GET") {
     c.need("permissions", "view");
     return json(
