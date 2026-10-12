@@ -76,6 +76,26 @@ for (const mode of ["sqlite", "postgres"]) {
       await a.DB.prepare("UPDATE nl_members SET verified=1 WHERE id=?")
         .bind(a.member.memberId)
         .run();
+      if (mode === "postgres") {
+        // PGlite bypasses postgres.js parameter serialization. Reproduce its
+        // jsonb string encoding, confirmed against the production driver.
+        const prepare = a.DB.prepare;
+        a.DB.prepare = (sql) => {
+          const statement = prepare(sql);
+          if (!sql.includes("json_each(?)")) return statement;
+          return {
+            ...statement,
+            bind: (...values) =>
+              statement.bind(
+                ...values.map((value) =>
+                  typeof value === "string" && value.startsWith("[")
+                    ? JSON.stringify(value)
+                    : value,
+                ),
+              ),
+          };
+        };
+      }
       const result = await a.req(`committees/roster?id=${a.cid}`);
       assert.equal(result.status, 200, JSON.stringify(result.data));
       assert.equal(result.data.can_track, true);
@@ -170,6 +190,14 @@ for (const mode of ["sqlite", "postgres"]) {
           .status,
         403,
       );
+      await a.DB.prepare(
+        "UPDATE nl_committees SET manager_id=NULL,members='[]',config='{}' WHERE id=?",
+      )
+        .bind(a.cid)
+        .run();
+      const empty = await a.req(`committees/roster?id=${a.cid}`);
+      assert.equal(empty.status, 200);
+      assert.deepEqual(empty.data.people, []);
     } finally {
       if (mode === "sqlite") a.DB.close();
     }
