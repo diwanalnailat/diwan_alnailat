@@ -601,6 +601,11 @@ export async function extractInvoice(env, c, file, content) {
       422,
     );
   }
+  // Both readers can agree on a wrong Arabic/Persian decimal magnitude.
+  // Preserve the raw script check before confidence filtering or normalization.
+  const ambiguousMoneySource = ["amount", "tax"].some((key) =>
+    /[٠-٩۰-۹٫٬،]/.test(d[key]?.value || ""),
+  );
   for (const k of Object.keys(properties)) {
     if (
       !d[k] ||
@@ -613,6 +618,9 @@ export async function extractInvoice(env, c, file, content) {
       throw integrationError("تعذر التحقق من الحقول المستخرجة.", 422);
     if (d[k].confidence !== "clear") d[k].value = null;
   }
+  if (ambiguousMoneySource)
+    for (const key of ["amount", "tax"])
+      d[key] = { value: null, confidence: "uncertain" };
   for (const k of ["amount", "tax", "date"]) {
     if (d[k].value === null) continue;
     try {
@@ -675,11 +683,15 @@ export async function extractInvoice(env, c, file, content) {
     } catch {
       verified = null;
     }
+    const ambiguousVerification = ["amount", "tax"].some((key) =>
+      /[٠-٩۰-۹٫٬،]/.test(verified?.[key]?.value || ""),
+    );
     for (const key of ["amount", "tax"]) {
       if (d[key].value === null) continue;
       try {
         const candidate = verified?.[key];
         if (
+          ambiguousVerification ||
           candidate?.confidence !== "clear" ||
           typeof candidate.value !== "string" ||
           candidate.value.length > 100 ||

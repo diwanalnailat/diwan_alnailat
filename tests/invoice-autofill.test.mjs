@@ -317,15 +317,15 @@ test("extraction leaves contradictory tax for manual review instead of autofilli
   }
 });
 
-test("extraction normalizes source decimal separators and Arabic digits without multiplying the amount", async () => {
+test("extraction normalizes clear Latin separators and withholds Arabic or Persian monetary readings", async () => {
   const a = await fixture();
   try {
     const file = await draft(a);
     provider(a);
     for (const [raw, expected] of [
-      ["٢٣٠٫٠٠", "230.00"],
-      ["۲۳۰٫۰۰", "230.00"],
-      ["١٬٢٣٠٫٥٠", "1230.50"],
+      ["٢٣٠٫٠٠", null],
+      ["۲۳۰٫۰۰", null],
+      ["١٬٢٣٠٫٥٠", null],
       ["1,230.50", "1230.50"],
       ["230,00", "230.00"],
       ["1,23,0.00", null],
@@ -334,7 +334,7 @@ test("extraction normalizes source decimal separators and Arabic digits without 
       a.env.PROVIDER_FETCH = async () => {
         const fields = invoice();
         fields.amount.value = raw;
-        fields.tax.value = "٠٫٠٠";
+        fields.tax.value = "0.00";
         return Response.json({
           status: "completed",
           output: [
@@ -348,7 +348,10 @@ test("extraction normalizes source decimal separators and Arabic digits without 
       const result = await a.req("extract", { file_id: file }, a.member);
       assert.equal(result.status, 200, JSON.stringify(result.data));
       assert.equal(result.data.fields.amount.value, expected, raw);
-      assert.equal(result.data.fields.tax.value, "0.00");
+      assert.equal(
+        result.data.fields.tax.value,
+        /[٠-٩۰-۹٫٬،]/.test(raw) ? null : "0.00",
+      );
     }
   } finally {
     await a.DB.close();
@@ -474,7 +477,7 @@ test("verification compares monetary values in halala and preserves matching pri
       if (
         JSON.parse(init.body).text.format.name === "invoice_money_verification"
       ) {
-        fields.amount.value = "١١٥٫٠٠";
+        fields.amount.value = "115";
         fields.tax.value = "15";
       }
       return Response.json({
@@ -493,5 +496,52 @@ test("verification compares monetary values in halala and preserves matching pri
     assert.equal(result.data.fields.tax.value, "15.00");
   } finally {
     await a.DB.close();
+  }
+});
+
+test("Arabic money is withheld even when both providers agree on the same wrong magnitude", async () => {
+  for (const variant of ["primary", "verification", "uncertain_tax"]) {
+    const a = await fixture();
+    try {
+      const file = await draft(a);
+      const calls = provider(a);
+      a.env.PROVIDER_FETCH = async (_, init) => {
+        const body = JSON.parse(init.body);
+        calls.push(body);
+        const fields = invoice();
+        fields.amount.value = "230000";
+        fields.tax.value = "30000";
+        if (
+          variant === "primary" ||
+          (variant === "verification" &&
+            body.text.format.name === "invoice_money_verification")
+        ) {
+          fields.amount.value = "٢٣٠٬٠٠٠";
+          fields.tax.value = "٣٠٬٠٠٠";
+        }
+        if (variant === "uncertain_tax")
+          fields.tax = { value: "٣٠٬٠٠٠", confidence: "uncertain" };
+        return Response.json({
+          status: "completed",
+          output: [
+            {
+              type: "message",
+              content: [{ type: "output_text", text: JSON.stringify(fields) }],
+            },
+          ],
+        });
+      };
+      const result = await a.req("extract", { file_id: file }, a.member);
+      assert.equal(result.status, 200, JSON.stringify(result.data));
+      for (const key of ["amount", "tax"])
+        assert.deepEqual(result.data.fields[key], {
+          value: null,
+          confidence: "uncertain",
+        });
+      assert.equal(result.data.fields.number.value, "INV-42");
+      assert.equal(calls.length, variant === "verification" ? 2 : 1);
+    } finally {
+      await a.DB.close();
+    }
   }
 });

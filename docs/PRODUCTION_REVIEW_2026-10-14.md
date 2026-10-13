@@ -1,6 +1,6 @@
 # Production review — 2026-10-14
 
-**Status: core release published; independent monetary verification passed final provider tests and awaits follow-up publication. Operational scale/backup/scanning gates remain.**
+**Status: operational workflows verified; final conservative monetary guard awaits publication. Broad production readiness remains conditional on backup/restore, attachment scanning and capacity gates.**
 
 This review covers the existing Diwan application and the user's requested
 Sanad document extraction, permission boundaries and execution checklists.
@@ -124,3 +124,9 @@ Release83ad24a / dpl_H57jtcmVYwuNBQssyW97TiWF4uow is READY and exact client arti
 Single-model prompt refinement did not reliably fix the Arabic image. Both gpt-4.1 and repeated gpt-5.4 trials misread it in different ways; switching models alone was rejected. The final implementation performs independent blind monetary verification, compares strictly parsed values in halala, and withholds any field when verification disagrees, is ambiguous or fails. The primary reading never supplies candidate amounts to the verifier. This mitigates the observed failure; agreement is not a guarantee against common OCR errors, so human review remains required.
 
 Real final tests: the exact ambiguous Arabic image yields amount=null and tax=null with other fields preserved; the clear English PDF still yields115.00/15.00. Observed endpoint times were12.4s and4.0s. SQLite26/26 and PostgreSQL12/12 affected checks passed; final integrated suite225/225 and build passed; preceding full PostgreSQL222/222 is supplemented by the12/12 changed-extraction checks. Publication is recorded in the task state. Evidence: `diwan-invoice-final-dualread.json`, `diwan-invoice-final-pdf-dualread.json`, `diwan-invoice-verification-tests.log`. Production server variable `OPENAI_INVOICE_VERIFY_MODEL=gpt-5.4` is configured. Extraction may make two model calls per action under the existing action quotas; additional latency/cost are deliberate safeguards.
+
+## Final conservative guard (supersedes agreement-only mitigation)
+
+A production retest on19f279b demonstrated a common-mode error: both readers agreed on230000/30000 for the same230/30 image. Thus agreement alone was insufficient. The final server guard now checks the original returned monetary strings before normalization. Any Arabic/Persian digit or separator in either reading withholds BOTH amount and tax, regardless of confidence or agreement. The exact problem image now returns null/null in the final real test, preserving other invoice fields. English-number PDF/image autofill stays available. UI guidance and trusted Sanad policy2026-10-14.2 explicitly explain manual entry for these numbers.
+
+This checks model-returned text, not the original pixels: an identical erroneous ASCII transcription from both readers can still evade it. **No claim of universal monetary OCR accuracy is made; compare every financial draft with its source before submitting.** Final full SQLite226/226, final extraction PostgreSQL13/13 and build passed; the earlier full PostgreSQL222/222 run remains the broader workflow evidence. Lint scope is unchanged. Known local credential scan376 files found0matches. Evidence: `diwan-invoice-final-raw-guard.json`, `diwan-raw-guard-final-{tests,build}.log`, `diwan-invoice-raw-guard-postgres.log`, `diwan-final-manifest.json`.
