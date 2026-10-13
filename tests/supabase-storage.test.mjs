@@ -43,3 +43,27 @@ test("Storage sends bytes only to its fixed project and rejects failed uploads",
     /503/,
   );
 });
+
+test("Storage refuses unbounded bodies and oversized binary data before network access", async () => {
+  let calls = 0;
+  const storage = supabaseStorage(env, async () => {
+    calls++;
+    return new Response(null, { status: 200 });
+  });
+  for (const body of [
+    new Blob(["x"]),
+    new ReadableStream(),
+    "x",
+    { byteLength: 1 },
+    null,
+  ]) {
+    await assert.rejects(storage.put("files/test", body), /bounded binary/);
+  }
+  await assert.rejects(
+    storage.put("files/test", new Uint8Array(10485761)),
+    /limit/,
+  );
+  assert.equal(calls, 0);
+  await storage.put("files/test", new Uint8Array([1]));
+  assert.equal(calls, 1);
+});

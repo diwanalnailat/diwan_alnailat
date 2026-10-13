@@ -22,6 +22,7 @@
     services:
       '<rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><path d="M14 17.5h7m-3.5-3.5v7"/>',
     decisions: '<path d="m8 12 3 3 5-6M9 3H5v18h14V3h-4M9 2h6v4H9z"/>',
+    task_approvals: '<path d="m8 12 3 3 5-6M9 3H5v18h14V3h-4M9 2h6v4H9z"/>',
     reports: '<path d="M4 3v18h17M8 16v-4m5 4V7m5 9V4"/>',
     field: '<path d="m12 3 9 5v9l-9 5-9-5V8l9-5Zm0 10v9M3 8l9 5 9-5"/>',
     media:
@@ -70,9 +71,9 @@
   const icon = (name, size = 18) =>
     `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.projects}</svg>`;
   const labels = {
-    heritage_results: "نتائج المواسم",
     join_requests: "طلبات الانضمام",
     join_policy: "شروط وسياسة الانضمام",
+    heritage_results: "نتائج المواسم",
     overview: "نظرة الديوان",
     services: "مركز الخدمات",
     decisions: "مركز القرارات",
@@ -82,6 +83,7 @@
     committees: "اللجان",
     projects: "المشاريع",
     tasks: "المهام",
+    task_approvals: "اعتمادات المهام",
     expenses: "المصاريف",
     advances: "العهد المالية",
     suppliers: "الموردون",
@@ -161,6 +163,7 @@
       person,
       projectName,
       done,
+      locationView,
       serviceFilter,
       scheduleFilter,
       decisionFilter,
@@ -205,6 +208,24 @@
     member = S?.user,
   ) {
     if (!member || member.status !== "active") return false;
+    if (
+      resource === "tasks" &&
+      r?.meta?.reviewer_id === member.id &&
+      member.roleContexts?.some(
+        (role) => role.committeeId === r.meta.committee_id,
+      ) &&
+      ["view", "review", "approve", "return"].includes(action)
+    )
+      grants = [
+        ...grants,
+        {
+          resource,
+          action,
+          effect: "allow",
+          scope: "all",
+          expires: r.meta.reviewer_expires,
+        },
+      ];
     const pairs = [
       [resource, action],
       ...(S?.permission_aliases?.[`${resource}:${action}`] || []).map((pair) =>
@@ -297,11 +318,19 @@
             body: JSON.stringify(body),
           };
     const res = await fetch("/api/" + path, opts);
+    if (res.status === 401) {
+      location.assign("/login");
+      throw Error("انتهت جلسة الدخول. جارٍ فتح صفحة الدخول.");
+    }
     let data;
     try {
       data = await res.json();
     } catch {
-      throw Error("تعذر الاتصال بالديوان. حاول مرة أخرى.");
+      throw Error(
+        res.status >= 500
+          ? "تعذر تحميل البيانات من الخادم. أعد المحاولة."
+          : "تعذر قراءة استجابة الديوان. أعد المحاولة.",
+      );
     }
     if (!res.ok) throw Error(data.error || "تعذر تنفيذ الطلب");
     if (data.inline_people_resolved) {
@@ -334,10 +363,32 @@
     }
     return data;
   }
-  async function refresh(renderPage = true) {
+  let stateRequest = null;
+  let refreshVersion = 0;
+  async function refresh(renderPage = true, include = "") {
+    const version = ++refreshVersion;
+    const target = page;
+    const path =
+      "state?" + new URLSearchParams({ view: target, project, include });
     const firstRender = !S;
-    const st = await api("state");
+    if (!stateRequest || stateRequest.path !== path) {
+      const request = { path, promise: api(path) };
+      stateRequest = request;
+      request.promise
+        .finally(() => {
+          if (stateRequest === request) stateRequest = null;
+        })
+        .catch(() => {});
+    }
+    const st = await stateRequest.promise;
+    if (version !== refreshVersion || target !== page) return false;
     S = st;
+    labels.overview =
+      {
+        member: "لوحة العضو",
+        supervisor: "لوحة المشرف",
+        admin: "نظرة الديوان",
+      }[S.dashboard?.role] || "نظرة الديوان";
     S.committees ||= [];
     S.advances ||= [];
     S.advanceEntries ||= [];
@@ -367,11 +418,15 @@
     );
     $(".sanad-trigger").hidden = !S.modules.includes("assistant");
     if (renderPage) render(firstRender);
+    return true;
+  }
+  async function ensureData(view) {
+    if (!S?.loaded_views?.includes(view)) await refresh(false, view);
   }
   function renderNav() {
     const groups = [
       ["overview", "services", "decisions", "calendar"],
-      ["projects", "committees", "tasks", "field"],
+      ["projects", "committees", "tasks", "task_approvals", "field"],
       [
         "expenses",
         "advances",
@@ -424,18 +479,36 @@
       toggle.title = expanded ? "إخفاء القائمة" : "إظهار القائمة";
     }
   }
-  function navigate(p) {
+  async function navigate(p) {
     if (!S && p !== "heritage") {
       phoneForm();
       return;
     }
     if (!labels[p]) p = "overview";
+    if (p === "overview" && S.dashboard?.role !== "admin") {
+      project = "";
+      committee = "";
+    }
     page = p;
-    location.hash = p;
+    if (location.hash.slice(1).split("?")[0] !== p) location.hash = p;
     $("#sidebar").classList.remove("open");
     syncMenu();
     renderNav();
-    render();
+    $("#main").innerHTML =
+      '<p class="muted" role="status">جارٍ تحميل القسم…</p>';
+    try {
+      if (!(await refresh())) return;
+      await openLinkedRecord();
+    } catch (error) {
+      if (page !== p) return;
+      toast(error.message, true);
+      $("#main").innerHTML =
+        '<p class="form-error" role="alert">' +
+        esc(error.message) +
+        '</p><button class="button" data-page="' +
+        esc(p) +
+        '">إعادة المحاولة</button>';
+    }
     window.scrollTo(0, 0);
   }
   function pageVisible(p) {
@@ -471,13 +544,7 @@
         (!project || t.project_id === project) &&
         (!committee || t.meta.committee_id === committee) &&
         (!taskFilter.q ||
-          (
-            t.title +
-            " " +
-            t.description +
-            " " +
-            (t.meta.tags || []).join(" ")
-          ).includes(taskFilter.q)) &&
+          (t.title + " " + t.description).includes(taskFilter.q)) &&
         (!taskFilter.status || t.status === taskFilter.status) &&
         (!taskFilter.priority || t.priority === taskFilter.priority) &&
         (!taskFilter.assignee || t.assignee_id === taskFilter.assignee),
@@ -527,6 +594,7 @@
             : ""),
       ) +
       `<div class="scope-banner"><span>${icon("projects")} ${p ? esc(p.season || p.title) : "اختر مشروع المشاركة"}</span><span>${cs.length} لجنة متاحة لك</span><span>المؤشرات محسوبة من المهام التي يحق لك مشاهدتها</span></div>` +
+      locationView(p?.meta?.site_location, "موقع المشروع") +
       (cs.length
         ? `<div class="project-grid">${cs
             .map((c) => {
@@ -612,9 +680,7 @@
     const c = S.committees.find((c) => c.id === id) || {
         project_id: project || S.projects[0]?.id,
         members: [],
-        config: {
-          tags: ["ميداني", "قبل الافتتاح", "أثناء المشاركة", "بعد المشاركة"],
-        },
+        config: {},
       },
       access = can("users", "manage");
     if (!c.project_id) return projectForm();
@@ -684,6 +750,7 @@
                     ),
             }),
           );
+          b.config = {};
         } else {
           delete b.manager_id;
           delete b.second_approver_id;
@@ -1729,7 +1796,7 @@
     }
   }
   async function joinRequestDetail(id, forward = false) {
-    const result = await api("join-requests");
+    const result = await api("join-requests?id=" + encodeURIComponent(id));
     const request = result.requests.find((item) => item.id === id);
     if (!request)
       throw new Error("الطلب غير متاح لك أو تغيرت إحالته. حدّث القائمة.");
@@ -1737,7 +1804,7 @@
       ? request.manager_id
       : S.committees.find((item) => item.id === request.committee_id)
           ?.manager_id;
-    const details = `<dl class="join-request-details"><div><dt>الاسم</dt><dd>${esc(request.name)}</dd></div><div><dt>رقم الجوال الموثق</dt><dd><bdi>${esc(request.phone)}</bdi></dd></div><div><dt>جهة الانضمام</dt><dd>${esc(request.committee_name || "الانضمام المباشر للديوان")}</dd></div><div><dt>الحالة</dt><dd>${esc(joinStatusNames[request.status] || request.status)}</dd></div><div><dt>سبب الانضمام</dt><dd class="join-preserve">${esc(request.reason)}</dd></div>${request.assigned_name ? `<div><dt>مدير اللجنة المكلّف</dt><dd>${esc(request.assigned_name)}</dd></div>` : ""}</dl>`;
+    const details = `<dl class="join-request-details"><div><dt>الاسم</dt><dd>${esc(request.name)}</dd></div><div><dt>رقم الجوال الموثق</dt><dd><bdi>${esc(request.phone)}</bdi></dd></div><div><dt>جهة الانضمام</dt><dd>${esc(request.committee_name || "الانضمام المباشر للديوان")}</dd></div><div><dt>الحالة</dt><dd>${esc(joinStatusNames[request.status] || request.status)}</dd></div><div><dt>سبب الانضمام</dt><dd class="join-preserve">${esc(request.reason)}</dd></div>${request.assigned_name ? `<div><dt>مدير اللجنة المكلّف</dt><dd>${esc(request.assigned_name)}</dd></div>` : ""}<div><dt>تعهد صحة البيانات</dt><dd>${request.attestation ? esc(request.attestation.text) + "<br><small>" + esc(request.attestation.accepted_at) + "</small>" : "لم يسجل تعهد في هذا الطلب السابق"}</dd></div></dl>${result.is_admin ? `<section class="detail-section"><h3>مرفقات الطلب</h3>${result.attachments?.length ? result.attachments.map((file) => `<p><strong>${file.kind === "identity" ? "الهوية" : "الخبرات السابقة"}</strong> · <a href="/api/files/${encodeURIComponent(file.id)}" download>${esc(file.name)}</a> <small>(${num(Math.ceil(file.size / 1024))} KB)</small></p>`).join("") : '<p class="muted">لم يرفق صاحب الطلب ملفات.</p>'}</section>` : ""}`;
     if (forward) {
       if (!request.can_forward || !request.committee_id)
         throw new Error("لا يمكن إحالة هذا الطلب إلى مدير اللجنة.");
@@ -1855,6 +1922,123 @@
     modal,
     toast,
   });
+  const approvalStatuses = {
+    pending: "بانتظار مراجعة الإدارة",
+    approved: "معتمد إداريًا",
+    on_hold: "الاعتماد معلّق",
+    finance: "محال للمالية",
+    clarification: "بانتظار إيضاح",
+  };
+  const stamp = (value) =>
+    value && Number.isFinite(Date.parse(value))
+      ? new Intl.DateTimeFormat("ar-SA-u-ca-gregory-nu-latn", {
+          dateStyle: "medium",
+          timeStyle: "short",
+          timeZone: "Asia/Riyadh",
+        }).format(new Date(value))
+      : "—";
+  const approvalActions = {
+    approve: "الموافقة على الاعتماد",
+    hold: "تعليق الاعتماد مؤقتًا",
+    refer_finance: "التوجيه للمالية",
+    request_info: "طلب إيضاح",
+    stop_payment: "إيقاف الصرف",
+    resume_payment: "استئناف الصرف",
+  };
+  let approvalStatus = "",
+    approvalCursor = "",
+    approvalNext = null,
+    approvalPrevious = [],
+    approvalRequest = 0,
+    approvalDetailRequest = 0;
+  function taskApprovalsPage() {
+    approvalCursor = "";
+    approvalPrevious = [];
+    return `${heading("اعتمادات المهام", "مراجعة الإنجاز والتكلفة وإجراءات الإدارة والمالية", btn("تحديث", "approval-refresh", "", "button-ghost", "check"))}<section class="panel"><div class="toolbar">${projectSelect()}${committeeSelect()}<label class="field"><span>حالة الاعتماد</span>${select("approval_status", [["", "كل الحالات"], ...Object.entries(approvalStatuses)], approvalStatus)}</label></div><div id="taskApprovals" aria-live="polite"></div></section>`;
+  }
+  async function loadTaskApprovals() {
+    const target = $("#taskApprovals"),
+      request = ++approvalRequest;
+    if (!target || page !== "task_approvals") return;
+    target.innerHTML =
+      '<p class="muted" role="status">جارٍ تحميل الاعتمادات…</p>';
+    const params = new URLSearchParams({
+      project,
+      committee,
+      status: approvalStatus,
+      cursor: approvalCursor,
+    });
+    try {
+      const data = await api("task-approvals?" + params);
+      if (
+        request !== approvalRequest ||
+        !target.isConnected ||
+        page !== "task_approvals"
+      )
+        return;
+      approvalNext = data.next_cursor;
+      target.innerHTML =
+        (data.rows.length
+          ? `<div class="approval-list">${data.rows.map((r) => `<article class="approval-card"><div><p class="muted">${esc(projectName(r.project_id))} / ${esc(committeeName(r.committee_id))}</p><h2>${esc(r.snapshot.title)}</h2><div class="approval-badges"><span class="pill">${esc(approvalStatuses[r.status])}</span>${r.payment_hold ? '<span class="pill red">الصرف موقوف</span>' : ""}</div><p class="muted">اعتمد الإنجاز: ${esc(r.snapshot.reviewer_name || "—")} · ${esc(stamp(r.snapshot.approved_at))}</p></div>${btn("عرض التفاصيل والإجراءات", "approval-open", r.task_id, "button-ghost", "arrow")}</article>`).join("")}</div>`
+          : '<div class="empty"><h3>لا توجد اعتمادات في هذه الصفحة</h3><p>تظهر المهام هنا بعد اعتماد مراجع الإنجاز. يمكنك تغيير التصفية أو الانتقال للصفحة التالية إن وجدت.</p></div>') +
+        `<div class="approval-pagination">${approvalPrevious.length ? btn("السابق", "approval-prev", "", "button-ghost", "arrow") : ""}${approvalNext ? btn("التالي", "approval-next", "", "button-ghost", "arrow") : ""}</div>`;
+    } catch (error) {
+      if (request === approvalRequest && target.isConnected)
+        target.innerHTML = `<p class="form-error" role="alert">${esc(error.message)}</p>${btn("إعادة المحاولة", "approval-refresh", "", "button-ghost")}`;
+    }
+  }
+  async function taskApprovalDialog(id) {
+    const request = ++approvalDetailRequest;
+    const dialog = modal(
+      "تفاصيل اعتماد المهمة",
+      '<div id="approvalDetail" role="status">جارٍ تحميل تفاصيل الاعتماد…</div>',
+      null,
+      true,
+    );
+    const target = $("#approvalDetail");
+    try {
+      const r = await api("task-approvals/detail?id=" + encodeURIComponent(id));
+      if (
+        request !== approvalDetailRequest ||
+        !target.isConnected ||
+        !dialog.open
+      )
+        return;
+      const name = (id) => r.people.find((p) => p.id === id)?.name || "—";
+      const s = r.snapshot,
+        available = r.actions.filter(
+          (a) => a !== (r.payment_hold ? "stop_payment" : "resume_payment"),
+        );
+      modal(
+        "اعتماد: " + s.title,
+        `<form class="form-grid approval-detail"><div class="full"><p class="muted">${esc(r.project)} / ${esc(r.committee)}</p><div class="approval-badges"><span class="pill">${esc(approvalStatuses[r.status])}</span><span class="pill">تنفيذ المهمة: ${esc(S.settings.taskStatuses.find((s) => s.id === r.execution_status)?.name || r.execution_status)}</span><span class="pill ${r.payment_hold ? "red" : ""}">${r.payment_hold ? "الصرف موقوف" : "لا يوجد إيقاف صرف إداري"}</span></div></div><dl class="detail-meta full"><dt>المنفذ المسؤول</dt><dd>${esc(name(s.assignee_id))}</dd><dt>المشاركون</dt><dd>${(s.collaborators || []).map(name).map(esc).join("، ") || "—"}</dd><dt>مراجع الإنجاز</dt><dd>${esc(s.reviewer_name || name(s.reviewer_id))}</dd><dt>تاريخ اعتماد الإنجاز</dt><dd>${esc(stamp(s.approved_at))}</dd><dt>إجمالي المصروفات المرتبطة</dt><dd>${r.cost === null ? "محجوب حسب الصلاحيات" : cash(r.cost)}</dd></dl><section class="detail-section full"><h3>المطلوب وآلية التنفيذ</h3><p class="detail-description">${esc(s.description || "—")}</p><h3>معيار قبول الإنجاز</h3><p class="detail-description">${esc(s.outcome || "—")}</p><h3>ملخص التنفيذ</h3><p class="detail-description">${esc(s.completion_note || "—")}</p><h3>ملاحظات اعتماد الإنجاز</h3><p class="detail-description">${esc(s.approval_note || "—")}</p>${(s.checklist || []).length ? `<ul>${s.checklist.map((step) => `<li>${step.done ? "✓ " : ""}${esc(step.text)}</li>`).join("")}</ul>` : ""}</section><section class="detail-section full"><h3>المصاريف المرتبطة</h3>${r.expenses.length ? r.expenses.map((e) => `<div class="attachment"><strong>${esc(e.title)}</strong><span>${e.amount === null ? "محجوب" : cash(e.amount)}</span><span>${esc(expenseStatuses[e.status]?.[0] || e.status)}</span></div>`).join("") : '<p class="muted">لا توجد مصاريف متاحة للعرض.</p>'}<p class="form-note">التكلفة تشمل المصاريف المرتبطة غير المرفوضة أو الملغاة؛ الموافقة الإدارية لا تنفذ سدادًا.</p></section><section class="detail-section full"><h3>سجل إجراءات الإدارة</h3>${r.history.length ? r.history.map((h) => `<article class="approval-history"><strong>${esc(approvalActions[h.action] || h.action)}</strong><small>${esc(name(h.actor))} · ${esc(stamp(h.created))}</small><p class="detail-description">${esc(h.detail)}</p></article>`).join("") : '<p class="muted">لم يُسجل إجراء إداري بعد.</p>'}</section>${available.length ? `<div class="notice full">الإجراء الإداري لا يغيّر حالة تنفيذ المهمة. إيقاف الصرف يمنع عمليات الصرف اللاحقة على مصاريفها المرتبطة.</div>${field("الإجراء *", select("action", [["", "اختر الإجراء"], ...available.map((a) => [a, approvalActions[a]])], "", "required"), true)}${field("الملاحظات والتوجيه *", textarea("note", "", 3, 'required maxlength="2000"'), true)}${actions("تسجيل الإجراء")}` : '<p class="muted full">لديك صلاحية المشاهدة فقط.</p>'}</form>`,
+        available.length
+          ? async (fd, form) => {
+              await api(
+                "task-approvals/decide",
+                {
+                  id,
+                  version: r.version,
+                  action: fd.get("action"),
+                  note: fd.get("note"),
+                },
+                form.dataset.requestKey,
+              );
+              toast("تم تسجيل الإجراء");
+              return () => taskApprovalDialog(id);
+            }
+          : null,
+        true,
+      );
+    } catch (error) {
+      if (
+        request === approvalDetailRequest &&
+        target.isConnected &&
+        dialog.open
+      )
+        target.innerHTML = `<p role="alert">${esc(error.message)}</p>${btn("إعادة المحاولة", "approval-open", id, "button-ghost")}`;
+    }
+  }
   function render(animate = true) {
     if (!S) return;
     document.body.classList.toggle("landing-mode", page === "heritage");
@@ -1878,6 +2062,7 @@
       projects: projectsPage,
       committees: committeesPage,
       tasks: tasksPage,
+      task_approvals: taskApprovalsPage,
       expenses: expensesPage,
       advances: advancesPage,
       suppliers: suppliersPage,
@@ -1896,6 +2081,7 @@
     views.profile = () => DiwanViews.profile(workspaceContext());
     $("#main").dataset.animate = String(animate);
     $("#main").innerHTML = (views[page] || views.overview)();
+    if (page === "task_approvals") loadTaskApprovals();
     if (animate) window.DiwanMotion?.enter($("#main"));
     if (page === "heritage") initHeritageMotion();
 
@@ -2389,13 +2575,15 @@
         project_id: pid,
         meta: { ...t.meta, committee_id: cid },
       }),
-      people = S.people.filter((p) => c.members.some((m) => m.id === p.id));
+      people = S.people.filter(
+        (p) => p.id === c.manager_id || c.members.some((m) => m.id === p.id),
+      );
     modal(
       t.id ? "تعديل تفاصيل المهمة" : "إسناد مهمة جديدة",
       `<form class="form-grid task-editor">${part(
         "1",
         "التكليف",
-        "اللجنة تحدد المنفذين ومدير اعتماد الإنجاز.",
+        "اللجنة تحدد المنفذين ومراجع الإنجاز.",
         `${field(
           "اللجنة والمشروع",
           select(
@@ -2413,7 +2601,15 @@
             t.meta.type || "execution",
             t.id ? "disabled" : "",
           ),
-        )}${field("المنفذ المسؤول *", select("assignee_id", [["", "اختر عضوًا من اللجنة"], ...people.map((p) => [p.id, p.name])], t.assignee_id || "", assign ? "required" : "disabled"))}${field("مدير اعتماد الإنجاز", input("manager_display", c.manager_id ? person(c.manager_id) : "لم يُعين مدير اللجنة", "text", "disabled"))}${field(
+        )}${field("المنفذ المسؤول *", select("assignee_id", [["", "اختر عضوًا من اللجنة"], ...people.map((p) => [p.id, p.name])], t.assignee_id || "", assign ? "required" : "disabled"))}${field(
+          "مراجع الإنجاز",
+          select(
+            "reviewer_id",
+            people.map((p) => [p.id, p.name]),
+            t.meta.reviewer_id || c.manager_id || "",
+            assign ? "required" : "disabled",
+          ),
+        )}${field(
           "الأولوية",
           select(
             "priority",
@@ -2431,30 +2627,7 @@
           ),
           true,
         )}`,
-      )}${part("2", "طريقة التنفيذ والمرفقات", "كل نوع مرفق يظهر في مكانه داخل المهمة.", `${(S.settings.customFields || []).map((x) => field(esc(x.name) + (x.required ? " *" : ""), x.type === "select" ? select("custom_" + x.id, [["", "اختر"], ...(x.options || []).map((v) => [v, v])], t.meta.custom?.[x.id] || "", x.required ? "required" : "") : input("custom_" + x.id, t.meta.custom?.[x.id] || "", x.type === "number" ? "number" : x.type === "date" ? "date" : "text", x.required ? "required" : ""))).join("")}${field("المطلوب وتعليمات التنفيذ *", textarea("description", t.description || "", 4, 'required placeholder="حدد المطلوب والكمية والمكان والتوقيت"'), true)}${field("معيار قبول الإنجاز *", textarea("outcome", t.meta.outcome || "", 2, 'required placeholder="ما النتيجة التي سيراجعها مدير اللجنة؟"'), true)}<div class="full template-preview"><strong>خطوات التنفيذ المعتمدة</strong><ol data-step-preview>${(t.id ? (t.meta.checklist || []).map((x) => x.text) : typeSteps[t.meta.type || "execution"]).map((x) => `<li>${esc(x)}</li>`).join("")}</ol></div><div class="upload-grid full">${typedUpload("guideFiles", "دليل تنفيذ المهمة", "guide")}${typedUpload("referenceFiles", "مراجع ومواصفات", "reference")}</div><div class="voice-field full">${typedUpload("voiceFiles", "التوجيه الصوتي", "voice", "audio/*")}<button type="button" class="button" data-draft-voice>${icon("mic")} تسجيل توجيه صوتي</button><div data-voice-preview></div></div>`)}${part(
-        "3",
-        "الربط ومراجعة الإسناد",
-        "تبدأ المهمة بانتظار البدء، ويراجع مدير اللجنة إنجازها.",
-        `${field(
-          "وسوم معتمدة",
-          multi(
-            "tags",
-            (c.config?.tags || []).map((x) => [x, x]),
-            t.meta.tags || [],
-          ),
-          true,
-        )}${field(
-          "مهام يجب إكمالها أولًا",
-          multi(
-            "dependencies",
-            S.tasks
-              .filter((x) => x.project_id === pid && x.id !== t.id)
-              .map((x) => [x.id, x.title]),
-            t.meta.dependencies || [],
-          ),
-          true,
-        )}<div class="flow-ribbon full"><span>إسناد</span><span>تنفيذ</span><span>مدير اللجنة يراجع</span><span>إنجاز معتمد</span></div><input type="hidden" name="parent_id" value="${esc(t.parent_id || options.parent_id || "")}">`,
-      )}${locationFields(t.meta.site_location)}${actions(t.id ? "حفظ التفاصيل" : "حفظ المهمة وإشعار المنفذ")}</form>`,
+      )}${part("2", "طريقة التنفيذ والمرفقات", "كل نوع مرفق يظهر في مكانه داخل المهمة.", `${(S.settings.customFields || []).map((x) => field(esc(x.name) + (x.required ? " *" : ""), x.type === "select" ? select("custom_" + x.id, [["", "اختر"], ...(x.options || []).map((v) => [v, v])], t.meta.custom?.[x.id] || "", x.required ? "required" : "") : input("custom_" + x.id, t.meta.custom?.[x.id] || "", x.type === "number" ? "number" : x.type === "date" ? "date" : "text", x.required ? "required" : ""))).join("")}${field("المطلوب وتعليمات التنفيذ *", textarea("description", t.description || "", 4, 'required placeholder="حدد المطلوب والكمية والمكان والتوقيت"'), true)}${field("معيار قبول الإنجاز *", textarea("outcome", t.meta.outcome || "", 2, 'required placeholder="ما النتيجة التي سيراجعها مدير اللجنة؟"'), true)}<div class="full template-preview"><strong>خطوات التنفيذ المعتمدة</strong><ol data-step-preview>${(t.id ? (t.meta.checklist || []).map((x) => x.text) : typeSteps[t.meta.type || "execution"] || typeSteps.execution).map((x) => `<li>${esc(x)}</li>`).join("")}</ol></div><div class="upload-grid full">${typedUpload("guideFiles", "دليل تنفيذ المهمة", "guide")}${typedUpload("referenceFiles", "مراجع ومواصفات", "reference")}</div><div class="voice-field full">${typedUpload("voiceFiles", "التوجيه الصوتي", "voice", "audio/*")}<button type="button" class="button" data-draft-voice>${icon("mic")} تسجيل توجيه صوتي</button><div data-voice-preview></div></div>`)}<input type="hidden" name="parent_id" value="${esc(t.parent_id || options.parent_id || "")}">${locationFields(t.meta.site_location)}${actions(t.id ? "حفظ التفاصيل" : "حفظ المهمة وإشعار المنفذ")}</form>`,
       async (fd, f) => {
         if (f.voiceRecorder?.state === "recording")
           throw Error("أوقف التسجيل الصوتي قبل حفظ المهمة");
@@ -2527,11 +2700,10 @@
             committee_id: sel.id,
             type: v.task_type || t.meta.type || "execution",
             outcome: v.outcome,
-            tags: fd.getAll("tags"),
             collaborators: assign
               ? fd.getAll("collaborators")
               : t.meta.collaborators || [],
-            dependencies: fd.getAll("dependencies"),
+            reviewer_id: assign ? v.reviewer_id : t.meta.reviewer_id,
             checklist: t.meta.checklist || [],
           },
           files,
@@ -2549,9 +2721,9 @@
     const f = $("#modalBody form");
     bindDraftVoice(f);
     f.querySelector("[name=task_type]")?.addEventListener("change", (e) => {
-      f.querySelector("[data-step-preview]").innerHTML = typeSteps[
-        e.target.value
-      ]
+      f.querySelector("[data-step-preview]").innerHTML = (
+        typeSteps[e.target.value] || typeSteps.execution
+      )
         .map((x) => `<li>${esc(x)}</li>`)
         .join("");
     });
@@ -2559,9 +2731,15 @@
       const cc = S.committees.find((c) => c.id === e.target.value);
       const assigneeSelect = f.querySelector("[name=assignee_id]"),
         selectedAssignee = assigneeSelect.value;
-      f.querySelector("[name=manager_display]").value = cc.manager_id
-        ? person(cc.manager_id)
-        : "لم يُعين مدير اللجنة";
+      const reviewerSelect = f.querySelector("[name=reviewer_id]");
+      reviewerSelect.innerHTML = S.people
+        .filter(
+          (p) =>
+            cc.members.some((m) => m.id === p.id) || p.id === cc.manager_id,
+        )
+        .map((p) => `<option value="${esc(p.id)}">${esc(p.name)}</option>`)
+        .join("");
+      reviewerSelect.value = cc.manager_id || "";
       f.querySelector("[name=assignee_id]").innerHTML =
         '<option value="">اختر عضوًا من اللجنة</option>' +
         S.people
@@ -2595,23 +2773,11 @@
       collaborators.replaceWith(
         collaboratorChoices.querySelector("[data-choice-group=collaborators]"),
       );
-      f.querySelector("[data-choice-group=tags]").outerHTML = multi(
-        "tags",
-        (cc.config?.tags || []).map((t) => [t, t]),
-        [],
-      );
-      f.querySelector("[data-choice-group=dependencies]").outerHTML = multi(
-        "dependencies",
-        S.tasks
-          .filter((t) => t.project_id === cc.project_id && t.id !== id)
-          .map((t) => [t.id, t.title]),
-        [],
-      );
     });
   }
   function mayTransitionTask(t, next) {
     return (
-      can("tasks", "edit", t) &&
+      (["review", "done"].includes(t.status) || can("tasks", "edit", t)) &&
       (next !== "review" || can("tasks", "submit", t)) &&
       (!["review", "done"].includes(t.status) ||
         (can("tasks", "review", t) &&
@@ -2626,7 +2792,7 @@
     const labels = {
       doing: t.status === "review" ? "إعادة المهمة للتنفيذ" : "بدء التنفيذ",
       blocked: "طلب مساندة",
-      review: "رفع الإنجاز لمدير اللجنة",
+      review: "رفع الإنجاز للمراجع",
       done: "اعتماد الإنجاز",
     };
     modal(
@@ -2675,7 +2841,7 @@
       t = data.task || S.tasks.find((x) => x.id === id),
       edit = can("tasks", "edit", t),
       c = S.committees.find((c) => c.id === t.meta.committee_id),
-      isManager = c?.manager_id === S.user.id;
+      isManager = (t.meta.reviewer_id || c?.manager_id) === S.user.id;
     currentTask = t;
     const possible = (
       {
@@ -2694,13 +2860,13 @@
             ? "إعادة فتح المهمة"
             : "بدء / استئناف التنفيذ",
       blocked: "طلب مساندة",
-      review: "رفع الإنجاز لمدير اللجنة",
+      review: "رفع الإنجاز للمراجع",
       done: "اعتماد الإنجاز",
     };
     const group = (purpose, title) =>
       `<section class="attachment-group"><h4>${title}</h4>${fileList(data.files.filter((f) => rawMeta(f).purpose === purpose))}</section>`;
     $("#detailBody").innerHTML =
-      `<div class="detail-top"><div class="eyebrow">${esc(projectName(t.project_id))} / ${esc(c?.name || "تحتاج ربطًا بلجنة")}</div><h1>${esc(t.title)}</h1><div class="page-actions">${statusPill(t)}${priorityPill(t)}${edit && !["review", "done"].includes(t.status) ? btn("تعديل التفاصيل", "task-edit", id, "button-ghost compact", "edit") : ""}</div></div><div class="flow-ribbon">${S.settings.taskStatuses.map((s) => `<span class="${s.id === t.status ? "current" : ""}">${esc(s.name)}</span>`).join("")}</div><div class="detail-meta"><span>المسؤول عن التنفيذ</span><strong>${esc(person(t.assignee_id))}</strong><span>اعتماد الإنجاز</span><strong>${esc(person(c?.manager_id))}</strong><span>البداية / الاستحقاق</span><strong>${date(t.start)} / ${date(t.due)}</strong><span>المشاركون</span><strong>${(t.meta.collaborators || []).map(person).map(esc).join("، ") || "—"}</strong></div>${locationView(t.meta.site_location, "موقع تنفيذ المهمة") || locationView(S.projects.find((p) => p.id === t.project_id)?.meta?.site_location, "موقع الفعالية")}${requestFlow(t)}<section class="detail-section"><h3>المطلوب وطريقة التنفيذ</h3><div class="detail-description">${esc(t.description)}</div><div class="notice"><strong>معيار قبول الإنجاز:</strong> ${esc(t.meta.outcome || "يحدده مدير اللجنة في تفاصيل المهمة")}</div></section><section class="detail-section"><h3>خطوات التنفيذ · ${num((t.meta.checklist || []).filter((x) => x.done).length)} / ${num(t.meta.checklist?.length || 0)}</h3>${(t.meta.checklist || []).map((x) => `<label class="checklist-row ${x.done ? "done" : ""}"><input type="checkbox" data-check-item="${x.id}" ${x.done ? "checked" : ""} ${edit && !["review", "done"].includes(t.status) ? "" : "disabled"}><span>${esc(x.text)}</span></label>`).join("")}</section><section class="detail-section"><div class="panel-header"><h3>ملف المهمة</h3>${edit ? btn("إرفاق مصنف", "task-upload", id, "button-ghost compact", "plus") : ""}</div>${group("guide", "دليل تنفيذ المهمة")}${group("reference", "مستندات وصور مرجعية")}${group("voice", "التوجيهات الصوتية")}${group("proof", "إثباتات الإنجاز")}${data.files.some((f) => !rawMeta(f).purpose) ? `<h4>مرفقات سابقة</h4>${fileList(data.files.filter((f) => !rawMeta(f).purpose))}` : ""}${(data.guides || []).map((g) => `<div class="attachment">${icon("documents")}<strong>${esc(g.title)}</strong>${btn("تنزيل PDF", "guide-download", g.id, "button-ghost compact", "download")}</div>`).join("")}${mayCreate("assistant") ? btn("إعداد دليل مع سَنَد", "task-guide", id, "button-ghost compact", "assistant") : ""}</section>${t.meta.completion_note ? `<div class="notice"><strong>ملخص الإنجاز المرفوع:</strong> ${esc(t.meta.completion_note)}</div>` : ""}<div class="task-flow-actions">${edit && !t.meta.request ? possible.map((s) => `<button class="button ${s === "done" || s === "review" ? "button-dark" : ""}" data-action="task-transition" data-id="${id}" data-next="${s}">${actionName[s]}</button>`).join("") : ""}</div><section class="detail-section"><div class="panel-header"><h3>المهام الفرعية</h3>${mayCreate("tasks") ? btn("مهمة فرعية", "task-sub", id, "button-ghost compact", "plus") : ""}</div>${
+      `<div class="detail-top"><div class="eyebrow">${esc(projectName(t.project_id))} / ${esc(c?.name || "تحتاج ربطًا بلجنة")}</div><h1>${esc(t.title)}</h1><div class="page-actions">${statusPill(t)}${priorityPill(t)}${edit && !["review", "done"].includes(t.status) ? btn("تعديل التفاصيل", "task-edit", id, "button-ghost compact", "edit") : ""}</div></div><div class="flow-ribbon">${S.settings.taskStatuses.map((s) => `<span class="${s.id === t.status ? "current" : ""}">${esc(s.name)}</span>`).join("")}</div><div class="detail-meta"><span>المسؤول عن التنفيذ</span><strong>${esc(person(t.assignee_id))}</strong><span>اعتماد الإنجاز</span><strong>${esc(person(t.meta.reviewer_id || c?.manager_id))}</strong><span>البداية / الاستحقاق</span><strong>${date(t.start)} / ${date(t.due)}</strong><span>المشاركون</span><strong>${(t.meta.collaborators || []).map(person).map(esc).join("، ") || "—"}</strong></div>${locationView(t.meta.site_location, "موقع تنفيذ المهمة") || locationView(S.projects.find((p) => p.id === t.project_id)?.meta?.site_location, "موقع الفعالية")}${requestFlow(t)}<section class="detail-section"><h3>المطلوب وطريقة التنفيذ</h3><div class="detail-description">${esc(t.description)}</div><div class="notice"><strong>معيار قبول الإنجاز:</strong> ${esc(t.meta.outcome || "يحدده مدير اللجنة في تفاصيل المهمة")}</div></section><section class="detail-section"><h3>خطوات التنفيذ · ${num((t.meta.checklist || []).filter((x) => x.done).length)} / ${num(t.meta.checklist?.length || 0)}</h3>${(t.meta.checklist || []).map((x) => `<label class="checklist-row ${x.done ? "done" : ""}"><input type="checkbox" data-check-item="${x.id}" ${x.done ? "checked" : ""} ${edit && !["review", "done"].includes(t.status) ? "" : "disabled"}><span>${esc(x.text)}</span></label>`).join("")}</section><section class="detail-section"><div class="panel-header"><h3>ملف المهمة</h3>${edit ? btn("إرفاق مصنف", "task-upload", id, "button-ghost compact", "plus") : ""}</div>${group("guide", "دليل تنفيذ المهمة")}${group("reference", "مستندات وصور مرجعية")}${group("voice", "التوجيهات الصوتية")}${group("proof", "إثباتات الإنجاز")}${data.files.some((f) => !rawMeta(f).purpose) ? `<h4>مرفقات سابقة</h4>${fileList(data.files.filter((f) => !rawMeta(f).purpose))}` : ""}${(data.guides || []).map((g) => `<div class="attachment">${icon("documents")}<strong>${esc(g.title)}</strong>${btn("تنزيل PDF", "guide-download", g.id, "button-ghost compact", "download")}</div>`).join("")}${mayCreate("assistant") ? btn("إعداد دليل مع سَنَد", "task-guide", id, "button-ghost compact", "assistant") : ""}</section>${t.meta.completion_note ? `<div class="notice"><strong>ملخص الإنجاز المرفوع:</strong> ${esc(t.meta.completion_note)}</div>` : ""}<div class="task-flow-actions">${!t.meta.request ? possible.map((s) => `<button class="button ${s === "done" || s === "review" ? "button-dark" : ""}" data-action="task-transition" data-id="${id}" data-next="${s}">${actionName[s]}</button>`).join("") : ""}</div><section class="detail-section"><div class="panel-header"><h3>المهام الفرعية</h3>${mayCreate("tasks") ? btn("مهمة فرعية", "task-sub", id, "button-ghost compact", "plus") : ""}</div>${
         S.tasks
           .filter((x) => x.parent_id === id)
           .map(
@@ -5198,9 +5364,17 @@
     sanadRecorder.start();
     $("#sanadVoiceState").textContent = "يسجل الآن · اضغط لإيقاف التسجيل";
   }
-  function reviewSanadDraft(id) {
+  async function reviewSanadDraft(id) {
     const d = sanadTurns.find((t) => t.id === id)?.proposal;
     if (!d?.resource) return;
+    const view = {
+      tasks: "task_detail",
+      expenses: "expense_detail",
+      assets: "asset_detail",
+      suppliers: "supplier_detail",
+      guides: "documents",
+    }[d.resource];
+    if (view) await ensureData(view);
     $("#assistant").close();
     const v = d.fields;
     if (d.resource === "guides") {
@@ -5463,8 +5637,10 @@
         const blob = await DiwanExports.guidePDF(assistantDraft, S);
         DiwanExports.download(blob, "دليل-" + assistantDraft.title + ".pdf");
         toast("تم تجهيز ملف الدليل");
-      } else if (button.value === "task") reviewGuideTask();
-      else toast("حُفظت مسودة الدليل");
+      } else if (button.value === "task") {
+        await ensureData("task_detail");
+        reviewGuideTask();
+      } else toast("حُفظت مسودة الدليل");
     } catch (e) {
       error.textContent = e.message;
       error.hidden = false;
@@ -5535,53 +5711,67 @@
       "البحث في الديوان",
       `<label class="search-trigger full">${icon("search")}<input class="input" id="globalSearch" placeholder="ابحث عن مهمة أو لجنة أو عهدة أو دليل أو رقم أصل" autofocus></label><div id="searchResults" class="search-results"><p class="muted">ابحث في السجلات المتاحة لك</p></div>`,
     );
-    $("#globalSearch").addEventListener("input", (e) => {
-      const normalizeSearch = (v) =>
-        String(v || "")
-          .normalize("NFKC")
-          .replace(/[\u064B-\u065F\u0640]/g, "")
-          .replace(/[أإآ]/g, "ا")
-          .toLocaleLowerCase("ar");
-      const q = normalizeSearch(e.target.value.trim());
-      const groups = [
-        ["tasks", "task", "title"],
-        ["projects", "project-open", "title"],
-        ["expenses", "expense", "title"],
-        ["assets", "asset", "name"],
-        ["suppliers", "supplier-view", "name"],
-        ["committees", "committee-open", "name"],
-        ["advances", "advance", "title"],
-        ["guides", "guide-view", "title"],
-      ];
-      $("#searchResults").innerHTML = q
-        ? groups
-            .flatMap(([r, a, key]) =>
-              (S[r] || [])
-                .filter((x) =>
-                  normalizeSearch(
-                    [x[key], x.description, x.serial, x.category]
-                      .filter(Boolean)
-                      .join(" "),
-                  ).includes(q),
-                )
-                .slice(0, 10)
-                .map(
-                  (x) =>
-                    `<button class="search-result" data-action="${a}" data-id="${x.id}">${icon(r)}<span>${esc(x[key])}<small>${r === "guides" ? "أدلة التنفيذ" : r === "suppliers" && x.meta?.media_profile ? "العلاقات الإعلامية" : labels[r]}</small></span>${icon("arrow", 14)}</button>`,
-                ),
+    const input = $("#globalSearch");
+    let timer,
+      version = 0;
+    input.addEventListener("input", () => {
+      clearTimeout(timer);
+      const current = ++version;
+      const q = input.value.trim();
+      $("#searchResults").innerHTML =
+        '<p class="muted">' +
+        (q.length < 2 ? "اكتب حرفين على الأقل للبحث." : "جارٍ البحث…") +
+        "</p>";
+      if (q.length < 2) return;
+      timer = setTimeout(async () => {
+        if ($("#globalSearch") !== input) return;
+        try {
+          const data = await api("search?q=" + encodeURIComponent(q));
+          if (current !== version || $("#globalSearch") !== input) return;
+          const resultHtml = data.results
+            .map(
+              (row) =>
+                '<button class="search-result" data-action="' +
+                esc(row.action) +
+                '" data-id="' +
+                esc(row.id) +
+                '">' +
+                icon(row.resource) +
+                "<span>" +
+                esc(row.title) +
+                "<small>" +
+                esc(labels[row.resource]) +
+                "</small></span>" +
+                icon("arrow", 14) +
+                "</button>",
             )
-            .join("") || '<p class="muted">لا توجد نتائج مطابقة.</p>'
-        : '<p class="muted">اكتب كلمة للبحث.</p>';
+            .join("");
+          $("#searchResults").innerHTML =
+            (resultHtml ||
+              (data.truncated
+                ? ""
+                : '<p class="muted">لا توجد نتائج مطابقة ضمن صلاحياتك.</p>')) +
+            (data.truncated
+              ? '<p class="muted" role="status">البحث واسع؛ اكتب كلمات أكثر تحديدًا لإظهار النتائج المطلوبة.</p>'
+              : "");
+        } catch (error) {
+          if (current === version && $("#globalSearch") === input)
+            $("#searchResults").innerHTML =
+              '<p class="muted">' + esc(error.message) + "</p>";
+        }
+      }, 300);
     });
   }
+
   async function notificationsModal() {
+    await ensureData("notifications");
     modal(
       "إشعارات الديوان",
       S.notifications.length
         ? S.notifications
             .map(
               (n) =>
-                `<button class="notification ${n.status === "unread" ? "unread" : ""}" data-action="${n.resource === "join_requests" ? "join-request-open" : n.resource === "tasks" ? "task" : n.resource === "advances" ? "advance" : "expense"}" data-id="${esc(n.entity_id)}"><span class="activity-icon">${icon(n.resource)}</span><span><strong>${esc(n.title)}</strong><p>${esc(n.body)}</p><small>${date(n.created)}</small></span></button>`,
+                `<button class="notification ${n.status === "unread" ? "unread" : ""}" data-action="${n.member_receipt ? "join-accepted" : n.resource === "join_requests" ? "join-request-open" : n.resource === "tasks" ? "task" : n.resource === "advances" ? "advance" : "expense"}" data-id="${esc(n.entity_id)}"><span class="activity-icon">${icon(n.resource)}</span><span><strong>${esc(n.title)}</strong><p>${esc(n.body)}</p><small>${date(n.created)}</small></span></button>`,
             )
             .join("")
         : empty("أنت على اطلاع", "ستظهر هنا الإسنادات وقرارات اعتماد مصاريفك."),
@@ -5732,6 +5922,37 @@
   async function handleAction(el) {
     const a = el.dataset.action,
       id = el.dataset.id;
+    if (a === "join-accepted") {
+      $("#modal").close();
+      await navigate("profile");
+      return;
+    }
+    // Global search may open a record outside the screen's current season.
+    if (el.closest("#searchResults")) {
+      project = "";
+      committee = "";
+      if (S) S.loaded_views = [];
+    }
+    const detailViews = {
+      task: "task_detail",
+      expense: "expense_detail",
+      advance: "advance_detail",
+      asset: "asset_detail",
+      supplier: "supplier_detail",
+      media: "supplier_detail",
+      committee: "committee_detail",
+      user: "users",
+      bundle: "users",
+      guide: "documents",
+      project: "projects",
+    };
+    const detailView = detailViews[a.split("-")[0]];
+    if (
+      detailView &&
+      !/-(filter|prev|next|today)$/.test(a) &&
+      !["project-open", "committee-open"].includes(a)
+    )
+      await ensureData(detailView);
     if (
       el.closest("#assistant") &&
       ["task-new", "expense-new", "supplier-new", "asset-new"].includes(a)
@@ -5803,7 +6024,7 @@
         break;
       case "workspace-readiness":
         selectedSettings = "connections";
-        navigate("settings");
+        await navigate("settings");
         await showReadiness();
         break;
       case "workspace-export": {
@@ -5888,9 +6109,10 @@
         $("#sanadChatForm").elements.namedItem("message").focus();
         break;
       case "sanad-draft":
-        reviewSanadDraft(id);
+        await reviewSanadDraft(id);
         break;
       case "sanad-guide":
+        await ensureData("documents");
         openSanadGuide();
         break;
       case "sanad-voice":
@@ -5988,6 +6210,25 @@
         break;
       case "committee-roster-open":
         committeeRosterDialog();
+        break;
+      case "approval-open":
+        await taskApprovalDialog(id);
+        break;
+      case "approval-refresh":
+        await loadTaskApprovals();
+        break;
+      case "approval-next":
+        if (approvalNext) {
+          approvalPrevious.push(approvalCursor);
+          approvalCursor = approvalNext;
+          await loadTaskApprovals();
+        }
+        break;
+      case "approval-prev":
+        if (approvalPrevious.length) {
+          approvalCursor = approvalPrevious.pop();
+          await loadTaskApprovals();
+        }
         break;
       case "committee-roster-refresh":
         loadCommitteeRoster();
@@ -6358,7 +6599,7 @@
     if (el.tagName === "BUTTON") ev.preventDefault();
     try {
       if (el.dataset.page) {
-        navigate(el.dataset.page);
+        await navigate(el.dataset.page);
         return;
       }
       await handleAction(el);
@@ -6408,13 +6649,13 @@
       if (el.id === "projectFilter") {
         project = el.value;
         committee = "";
-        render();
+        await refresh();
       }
       if (el.id === "committeeFilter") {
         committee = el.value;
         if (committee)
           project = S.committees.find((c) => c.id === committee).project_id;
-        render();
+        await refresh();
       }
       if (el.name === "membership_role") {
         const row = el.closest("[data-membership]");
@@ -6435,6 +6676,12 @@
       if (el.dataset.filter && el.dataset.filter !== "q") {
         taskFilter[el.dataset.filter] = el.value;
         render();
+      }
+      if (el.name === "approval_status") {
+        approvalStatus = el.value;
+        approvalCursor = "";
+        approvalPrevious = [];
+        await loadTaskApprovals();
       }
       if (el.name === "rule_resource") {
         const action = el
@@ -6636,20 +6883,20 @@
   $("#assistant").addEventListener("close", () => {
     if (sanadRecorder?.state === "recording") sanadRecorder.stop();
   });
-  setInterval(() => {
-    if (
-      S &&
-      !document.hidden &&
-      !document.querySelector("dialog[open]") &&
-      !document.activeElement?.matches("input,textarea,select")
-    )
-      refresh().catch(() => {});
-  }, 15000);
-  function openLinkedRecord() {
+  // Load on navigation, explicit refresh or a successful mutation, never poll
+  // the entire workspace while the user is reading a screen.
+  async function openLinkedRecord() {
     const [type, q] = location.hash.slice(1).split("?");
     if (!q) return;
     const id = new URLSearchParams(q).get("record");
     if (!id) return;
+    const view = {
+      tasks: "task_detail",
+      expenses: "expense_detail",
+      advances: "advance_detail",
+      assets: "asset_detail",
+    }[type];
+    if (view) await ensureData(view);
     const found = S?.[type]?.find((r) => r.id === id);
     if (!found) return toast("السجل غير متاح ضمن صلاحياتك الحالية.", true);
     if (type === "tasks") openTask(id);
@@ -6657,7 +6904,7 @@
     else if (type === "advances") advanceDetail(id);
     else if (type === "assets") assetDetail(id);
   }
-  window.addEventListener("hashchange", () => {
+  window.addEventListener("hashchange", async () => {
     const hash = location.hash.slice(1),
       [next, query] = hash.split("?");
     if (!S) {
@@ -6669,14 +6916,21 @@
       return;
     }
     if (next && next !== page) {
-      page = labels[next] ? next : "overview";
-      renderNav();
-      render();
+      try {
+        await navigate(labels[next] ? next : "overview");
+      } catch (error) {
+        toast(error.message, true);
+      }
+      return;
     }
-    openLinkedRecord();
+    if (stateRequest) return;
+    await openLinkedRecord().catch((error) => toast(error.message, true));
     if (query) {
       const id = new URLSearchParams(query).get("asset");
-      if (id && S?.assets.some((a) => a.id === id)) assetDetail(id);
+      if (id) {
+        await ensureData("asset_detail");
+        if (S?.assets.some((a) => a.id === id)) assetDetail(id);
+      }
     }
   });
   document.addEventListener("keydown", (e) => {
@@ -6700,15 +6954,16 @@
   window.addEventListener("resize", syncMenu);
   syncMenu();
   refresh()
-    .then(() => {
+    .then(async () => {
       if (new URLSearchParams(location.search).get("join") === "1")
         phoneForm(true);
-      openLinkedRecord();
+      await openLinkedRecord();
       const [p, q] = location.hash.slice(1).split("?");
       if (q && p === "assets") {
         page = "assets";
         render();
         const id = new URLSearchParams(q).get("asset");
+        if (id) await ensureData("asset_detail");
         if (S.assets.some((a) => a.id === id)) assetDetail(id);
       }
     })

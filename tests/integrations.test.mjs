@@ -119,7 +119,8 @@ test("Sanad uses scoped server data, returns editable drafts, persists privately
       assert.equal(url, "https://api.openai.com/v1/responses");
       const body = JSON.parse(init.body);
       assert.equal(body.store, false);
-      assert.ok(body.instructions.includes(task));
+      assert.ok(!body.instructions.includes(task));
+      assert.ok(body.input[0].content.includes(task));
       assert.ok(!body.instructions.includes("test-secret"));
       calls++;
       if (calls === 1)

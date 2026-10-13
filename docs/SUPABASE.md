@@ -25,6 +25,8 @@ Without DATABASE_URL the local runner uses its original SQLite/files backend. Wi
 
 `npm run db:setup-storage` creates the private bucket once. The current `diwan-files` bucket is private, limited to 10 MiB and allowed media/document MIME types. Upload, download and deletion use the Storage API through the authorized server.
 
+Optional membership attachments use a separate private `diwan-join-files` bucket (all formats, 4 MiB per stored object). Logical files up to 100 MiB / 300 MiB total upload in 3 MiB parts, losslessly compressed when beneficial and streamed back as the original. Setup: `node --env-file=.env.local scripts/setup-join-storage.mjs`. Created and verified 2026-09-20: Storage object RLS enabled, no client policies, successful synthetic upload/read/delete and denied public read. Only administration can download completed logical files through the application server. The original bucket's limits and privacy are unchanged; no bucket change is needed for larger logical files. See [membership attachments](JOIN_REQUESTS.md).
+
 ```sh
 npm run db:check
 npm test

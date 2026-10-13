@@ -168,7 +168,6 @@ test("actual interface and server: heritage entry, connected membership, task st
     await click('[data-page="heritage_results"]');
     await wait(() => d.querySelectorAll(".heritage-season-card").length === 5);
     await click('[data-action="heritage-season-new"]');
-    await wait(() => d.querySelector("#modal").open);
     val("season", "2027–2028");
     val("edition", "12");
     val("title", '<img src=x onerror="throw 1">');
@@ -191,7 +190,6 @@ test("actual interface and server: heritage entry, connected membership, task st
     assert.equal(published[0].awards.length, 1);
     assert.equal(published[0].awards[0].camel, "مطية اختبار");
     await click('[data-action="heritage-season-edit"][data-id="12"]');
-    await wait(() => d.querySelector("#modal").open);
     val("title", "عنوان معدل");
     // Another admin saved while this dialog was open: stale edits must remain visible.
     const concurrent = await a.req("heritage-results/manage");
@@ -211,7 +209,6 @@ test("actual interface and server: heritage entry, connected membership, task st
     );
     await click('[data-action="close-modal"]');
     await click('[data-action="heritage-season-edit"][data-id="12"]');
-    await wait(() => d.querySelector("#modal").open);
     val("title", "عنوان معدل");
     await submit();
     await wait(() =>
@@ -220,11 +217,9 @@ test("actual interface and server: heritage entry, connected membership, task st
         .textContent.includes("عنوان معدل"),
     );
     await click('[data-action="heritage-season-delete"][data-id="12"]');
-    await wait(() => d.querySelector("#modal").open);
     await submit();
     await wait(() => d.querySelectorAll(".heritage-season-card").length === 5);
     await click('[data-page="overview"]');
-    await wait(() => d.querySelector(".command-hero"));
     w.innerWidth = 390;
     w.dispatchEvent(new w.Event("resize"));
     assert.equal(d.querySelector("#sidebar").inert, true);
@@ -306,7 +301,7 @@ test("actual interface and server: heritage entry, connected membership, task st
     assert.equal(d.querySelector("[data-action=budget-add]"), null);
     assert.equal(d.querySelector("[name=catalog_tags]"), null);
     await submit();
-    assert.equal(lastCommitteeSave.config, undefined);
+    assert.equal(Object.hasOwn(lastCommitteeSave.config, "budgetLines"), false);
     assert.equal(
       (await state(a)).committees[0].config.budgetLines[0].budget,
       1000000,
@@ -338,7 +333,9 @@ test("actual interface and server: heritage entry, connected membership, task st
     val("outcome", "جاهزية نقطة الاستقبال");
     val("assignee_id", a.member.memberId);
     val("due", "2027-01-20");
-    assert.equal(d.querySelectorAll("[name=reviewer_id]").length, 0);
+    assert.equal(d.querySelector("select[name=reviewer_id]").value, a.manager.memberId);
+    assert.ok(d.querySelector(`select[name=reviewer_id] option[value="${a.member.memberId}"]`));
+    assert.equal(d.querySelector('[name="dependencies"]'), null);
     assert.ok(d.querySelector("[name=voiceFiles]"));
     assert.ok(d.querySelector("[name=guideFiles]"));
     await submit();

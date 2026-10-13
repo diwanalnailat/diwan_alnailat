@@ -221,7 +221,150 @@
       chips,
     };
   }
+  function dashboardContext(c, supervisor) {
+    const id = c.S.user.id,
+      ids = new Set(c.S.dashboard?.committee_ids || []);
+    const committees = c.S.committees.filter((k) =>
+      supervisor
+        ? ids.has(k.id)
+        : k.manager_id === id || k.members.some((m) => m.id === id),
+    );
+    const tasks = c.S.tasks.filter((t) =>
+      supervisor
+        ? ids.has(t.meta?.committee_id)
+        : t.assignee_id === id ||
+          (t.status === "review" && t.meta?.reviewer_id === id),
+    );
+    const expenses = c.S.expenses.filter((e) =>
+      supervisor
+        ? ids.has(e.meta?.committee_id)
+        : [e.created_by, e.meta?.claimant_id].includes(id),
+    );
+    const advances = c.S.advances.filter((a) => a.assignee_id === id);
+    const projects = new Set(
+      [...committees, ...tasks, ...expenses, ...advances].map(
+        (r) => r.project_id,
+      ),
+    );
+    return {
+      ...c,
+      S: {
+        ...c.S,
+        committees,
+        tasks,
+        expenses,
+        projects: c.S.projects.filter((p) => projects.has(p.id)),
+        members: [],
+        assets: [],
+        advances,
+      },
+    };
+  }
+  function dashboardHero(c, role, title, note, actions) {
+    return `<header class="role-dashboard-hero"><div><span class="eyebrow">ديوان النائلات · ${role}</span><h1>${title}</h1><p>مرحبًا ${c.esc(c.S.user.name)}، ${note}</p></div><div class="page-actions">${actions}</div></header>`;
+  }
+  function dashboardStat(c, title, count, note) {
+    return `<div class="metric-card"><span class="metric-top">${title}</span><strong class="metric-number">${c.num(count)}</strong><span class="metric-caption">${note}</span></div>`;
+  }
+  function dashboardFilters(c) {
+    return `<div class="role-dashboard-filters"><label for="projectFilter">المشروع</label><select id="projectFilter" class="select-inline"><option value="">كل مشاريعي</option>${c.S.projects.map((p) => `<option value="${c.esc(p.id)}" ${c.project === p.id ? "selected" : ""}>${c.esc(p.title)}</option>`).join("")}</select></div>`;
+  }
+  function memberDashboard(context) {
+    const c = dashboardContext(context, false);
+    const { m, section, blank, task, event, nav } = setup(c);
+    const open = m.records.tasks.filter((t) => !c.done(t));
+    const late = open.filter((t) => t.due && t.due < c.today());
+    const due = open.filter((t) => t.due === c.today());
+    const returned = m.records.expenses.filter((e) =>
+      ["draft", "returned"].includes(e.status),
+    );
+    const expenseStatus = {
+      draft: "مسودة",
+      returned: "معاد للاستكمال",
+      pending: "قيد الاعتماد",
+      approved: "معتمد",
+      rejected: "مرفوض",
+    };
+    const myExpenses = [...m.records.expenses].sort(
+      (a, b) =>
+        Number(["draft", "returned"].includes(b.status)) -
+        Number(["draft", "returned"].includes(a.status)),
+    );
+    const locations = m.records.projects.filter((p) => p.meta?.site_location);
+    const shortcuts = `${nav("profile", "مساحتي وإعداداتي")}${c.mayCreate("expenses") ? c.btn("رفع مصروف", "expense-new", "", "button-dark", "plus") : ""}`;
+    return `<div class="role-dashboard" data-dashboard="member">${dashboardHero(c, "لوحة العضو", "خطوتك القادمة واضحة", "هذه مهامك وطلباتك ومواعيد مشاركتك.", shortcuts)}${dashboardFilters(c)}<div class="metric-grid">${dashboardStat(c, "مهامي المفتوحة", open.length, "مسندة إليك وتنتظر إنجازك")}${dashboardStat(c, "موعدها اليوم", due.length, "رتّب أولوياتك لهذا اليوم")}${dashboardStat(c, "تجاوزت الموعد", late.length, "ابدأ بها أو اطلب المساندة")}${dashboardStat(c, "مصروفات للاستكمال", returned.length, "مسودات أو طلبات أعيدت إليك")}</div><div class="command-layout"><div class="command-main">${section("أولوياتي", m.focus.length ? `<div class="focus-list">${m.focus.slice(0, 6).map(task).join("")}</div>` : blank("مهامك محدثة", "ستظهر هنا المهام عندما تُسند إليك"), "tasks", "فتح المهام")}${section(
+      "متابعة مصروفاتي",
+      myExpenses.length
+        ? `<div class="focus-list">${myExpenses
+            .slice(0, 5)
+            .map((e) =>
+              event({
+                ...e,
+                action: "expense",
+                resource: "expenses",
+                note: expenseStatus[e.status] || e.status,
+              }),
+            )
+            .join("")}</div>`
+        : blank("لا توجد طلبات مالية", "مصروفاتك وحالة اعتمادها ستظهر هنا"),
+      visible(c.S, "expenses") ? "expenses" : "",
+    )}</div><aside class="command-aside">${section("لجاني", m.records.committees.length ? `<div class="focus-list">${m.records.committees.map((k) => event({ ...k, title: k.name, action: "committee-open", resource: "committees", note: c.projectName(k.project_id) })).join("")}</div>` : blank("بانتظار انضمامك إلى لجنة", "تظهر لجنتك هنا بعد إضافتك إليها"))}${section("مواقع المشاركة", locations.length ? `<div class="role-locations">${locations.map((p) => c.locationView(p.meta.site_location, p.title)).join("")}</div>` : blank("المواقع غير محددة", "يظهر موقع المشروع بعد حفظه من مسؤول المشروع"))}${
+      m.records.advances.length
+        ? section(
+            "عهدي المالية",
+            `<div class="focus-list">${m.records.advances
+              .slice(0, 4)
+              .map((a) =>
+                event({
+                  ...a,
+                  action: "advance",
+                  resource: "advances",
+                  note: "الرصيد المتبقي " + c.cash(a.balance) + " ريال",
+                }),
+              )
+              .join("")}</div>`,
+            "advances",
+          )
+        : ""
+    }</aside></div><p class="scope-note">هذه اللوحة تعرض أعمالك المسندة إليك وطلباتك ضمن المشروع المختار.</p></div>`;
+  }
+  function supervisorDashboard(context) {
+    const c = dashboardContext(context, true);
+    const { m, section, blank, task, event, nav } = setup(c);
+    const open = m.records.tasks.filter((t) => !c.done(t));
+    const late = open.filter((t) => t.due && t.due < c.today());
+    const blocked = open.filter((t) => t.status === "blocked");
+    const attention = [...open].sort(
+      (a, b) =>
+        Number(b.status === "blocked") - Number(a.status === "blocked") ||
+        (a.due || "9999").localeCompare(b.due || "9999"),
+    );
+    const committees = m.records.committees
+      .map((k) => {
+        const tasks = m.records.tasks.filter(
+            (t) => t.meta?.committee_id === k.id,
+          ),
+          complete = tasks.filter(c.done).length;
+        const progress = tasks.length
+          ? Math.round((complete * 100) / tasks.length)
+          : 0;
+        return `<article class="role-committee-row"><div><h3><button class="text-link" data-action="committee-open" data-id="${c.esc(k.id)}">${c.esc(k.name)}</button></h3><p class="muted">${c.esc(c.projectName(k.project_id))}</p><div class="role-committee-summary"><span>${c.num(complete)} من ${c.num(tasks.length)} مهمة مكتملة</span><strong>${progress}%</strong></div><div class="progress-track" role="progressbar" aria-label="إنجاز ${c.esc(k.name)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress}"><div class="progress-fill" style="width:${progress}%"></div></div></div>${c.btn("فتح اللجنة", "committee-open", k.id, "button-ghost compact", "arrow")}</article>`;
+      })
+      .join("");
+    const actions = `${c.mayCreate("tasks") ? c.btn("إسناد مهمة", "task-new", "", "button-dark", "plus") : ""}${nav("decisions", "مركز القرارات")}`;
+    return `<div class="role-dashboard" data-dashboard="supervisor">${dashboardHero(c, "لوحة المشرف", "فريقك تحت المتابعة", "تابع لجانك وما يحتاج مساندة أو قرارًا منك.", actions)}${dashboardFilters(c)}<div class="metric-grid">${dashboardStat(c, "اللجان التي أشرف عليها", m.records.committees.length, "ضمن نطاق إشرافك الحالي")}${dashboardStat(c, "مهام متأخرة", late.length, "تحتاج متابعة الموعد")}${dashboardStat(c, "تحتاج مساندة", blocked.length, "تابع العوائق مع أصحاب المهام")}${dashboardStat(c, "بانتظار قراري", m.decisions.length, "مراجعات تملك صلاحية تنفيذها")}</div><div class="command-layout"><div class="command-main">${section("متابعة اللجان", committees || blank("لا توجد لجان ضمن هذا المشروع", "اختر كل المشاريع لعرض نطاق إشرافك"))}${section("تحتاج متابعتي", attention.length ? `<div class="focus-list">${attention.slice(0, 6).map(task).join("")}</div>` : blank("الأعمال مكتملة", "لا توجد مهام مفتوحة ضمن نطاق إشرافك"), "tasks", "فتح المهام")}</div><aside class="command-aside">${section("قرارات موجهة إليّ", m.decisions.length ? `<div class="focus-list">${m.decisions.slice(0, 5).map(event).join("")}</div>` : blank("لا توجد قرارات تنتظرك", "تظهر المراجعة عندما تصل إلى مرحلتك ويكون لديك حق اعتمادها"), "decisions")}${c.S.join_requests_access ? section("طلبات الانضمام المحالة", `<div class="panel-body"><p class="muted">راجع الطلبات التي أحالتها إدارة الديوان إليك.</p>${nav("join_requests", "فتح طلبات الانضمام")}</div>`) : ""}${section(
+      "مواقع المشاريع",
+      m.records.projects.some((p) => p.meta?.site_location)
+        ? `<div class="role-locations">${m.records.projects
+            .filter((p) => p.meta?.site_location)
+            .map((p) => c.locationView(p.meta.site_location, p.title))
+            .join("")}</div>`
+        : blank("لا توجد مواقع محفوظة", "تظهر المواقع عند تحديدها في المشروع"),
+    )}</aside></div><p class="scope-note">الإشراف يحدد محتوى اللوحة؛ كل عرض أو اعتماد يخضع لصلاحياتك الحالية.</p></div>`;
+  }
   function overview(c) {
+    if (c.S.dashboard?.role === "member") return memberDashboard(c);
+    if (c.S.dashboard?.role === "supervisor") return supervisorDashboard(c);
     const { m, filters, scopeNote, nav, section, blank, event, task, metric } =
       setup(c);
     const tiles = [

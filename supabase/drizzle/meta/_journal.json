@@ -29,6 +29,20 @@
       "when": 1789856135769,
       "tag": "0003_join_requests",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791847740923,
+      "tag": "0004_task_administration",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791849611595,
+      "tag": "0005_operational_indexes",
+      "breakpoints": true
     }
   ]
 }

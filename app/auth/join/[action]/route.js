@@ -10,7 +10,12 @@ async function handle(req, context) {
     const { action } = await context.params;
     const env = await serverEnvironment();
     const response = await joinPublicEndpoint(req, env, action);
-    if (req.method === "POST" && action === "verify" && response.ok) {
+    if (
+      req.method === "POST" &&
+      ["verify", "complete"].includes(action) &&
+      response.ok &&
+      (await response.clone().json()).ok
+    ) {
       after(async () => {
         const { dispatchNotifications } = await import("../../../../worker.js");
         await dispatchNotifications(env).catch(() => {});

@@ -169,7 +169,6 @@ export async function fixture() {
       },
     ],
     config: {
-      tags: ["ميداني"],
       budgetLines: [
         {
           id: "hospitality",
@@ -194,7 +193,6 @@ export async function saveTask(a, override = {}) {
         committee_id: a.cid,
         type: "execution",
         outcome: "اكتمال التجهيز",
-        tags: ["ميداني"],
         ...override.meta,
       },
       ...Object.fromEntries(

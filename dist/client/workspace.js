@@ -156,9 +156,8 @@
           task.status === "review" &&
           !meta(task).request &&
           !closedProject(task) &&
-          owner?.manager_id === user.id &&
+          (meta(task).reviewer_id || owner?.manager_id) === user.id &&
           can("tasks", "view", task) &&
-          can("tasks", "edit", task) &&
           can("tasks", "approve", task)
         )
           decisions.push(
@@ -167,7 +166,7 @@
               "tasks",
               "task",
               "task_review",
-              "إنجاز ينتظر مراجعة مدير اللجنة",
+              "إنجاز ينتظر مراجعتك",
               task.due,
             ),
           );

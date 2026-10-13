@@ -10,6 +10,8 @@ test("asset and task location persistence, validation, restricted visibility and
       lat: "24.7136",
       lng: "46.6753",
       notes: "البوابة الشمالية",
+      map_url:
+        "https://www.google.com/maps/search/?api=1&query=24.7136,46.6753",
     };
     const payload = {
       name: "كرفان اختبار",
@@ -32,6 +34,7 @@ test("asset and task location persistence, validation, restricted visibility and
     assert.match(asset.serial, /^NL-\d{8}$/);
     payload.serial = asset.serial;
     assert.equal(asset.meta.site_location.lat, 24.7136);
+    assert.equal(asset.meta.site_location.map_url, geo.map_url);
     assert.equal(asset.meta.manufacturer_serial, "VENDOR-909");
     const outsider = await state(a, a.outsider);
     assert.ok(!outsider.assets.some((x) => x.id === id));
@@ -75,6 +78,51 @@ test("asset and task location persistence, validation, restricted visibility and
       (await state(a)).projects.find((p) => p.id === a.pid).meta.site_location
         .lng,
       46.6753,
+    );
+    assert.equal(
+      (await state(a, a.member)).projects.find((p) => p.id === a.pid).meta
+        .site_location.map_url,
+      geo.map_url,
+    );
+    assert.ok(
+      !(await state(a, a.outsider)).projects.some((p) => p.id === a.pid),
+    );
+    const result = await a.req(
+      "location/resolve",
+      { url: geo.map_url },
+      a.member,
+    );
+    assert.equal(result.status, 200);
+    assert.equal(result.data.lat, 24.7136);
+    const memberRow = await a.DB.prepare(
+      "SELECT grants FROM nl_members WHERE id=?",
+    )
+      .bind(a.member.memberId)
+      .first();
+    await a.DB.prepare("UPDATE nl_members SET grants=? WHERE id=?")
+      .bind(
+        JSON.stringify([
+          ...JSON.parse(memberRow.grants),
+          {
+            resource: "projects",
+            action: "view",
+            effect: "deny",
+            scope: "project",
+            projectId: a.pid,
+          },
+        ]),
+        a.member.memberId,
+      )
+      .run();
+    assert.equal(
+      (await state(a, a.member)).projects.find((p) => p.id === a.pid).meta
+        .site_location,
+      null,
+      "explicit project denial still hides its location",
+    );
+    assert.equal(
+      (await a.req("location/resolve", { url: geo.map_url }, null)).status,
+      401,
     );
   } finally {
     a.DB.close();

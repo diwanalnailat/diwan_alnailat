@@ -1,11 +1,16 @@
 // Explicit localhost-only development entrypoint. Never used by the hosted Worker.
 import http from "node:http";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import fs from "node:fs";
 import path from "node:path";
 import worker from "../worker.js";
 import { database } from "./sqlite.mjs";
 import { postgresDatabase } from "../lib/postgres.js";
-import { supabaseStorage } from "../lib/supabase-storage.js";
+import {
+  supabaseStorage,
+  joinAttachmentStorage,
+} from "../lib/supabase-storage.js";
 if (fs.existsSync(".env.local")) process.loadEnvFile(".env.local");
 const root = process.env.DIWAN_LOCAL_DATA || "/tmp/diwan-local";
 fs.mkdirSync(root, { recursive: true });
@@ -75,10 +80,22 @@ const env = {
   ...process.env,
   DB,
   BUCKET,
+  JOIN_BUCKET: remote ? joinAttachmentStorage(process.env) : BUCKET,
   SITE_OWNER_EMAIL: "developer@localhost.test",
 };
 http
   .createServer(async (req, res) => {
+    const started = Date.now();
+    const trace = (stage, extra = {}) => {
+      if (process.env.DIWAN_LOG_TIMINGS === "true")
+        console.info("Diwan local request", {
+          stage,
+          path: req.url?.split("?")[0],
+          ms: Date.now() - started,
+          ...extra,
+        });
+    };
+    trace("received");
     try {
       if (
         ![
@@ -113,16 +130,22 @@ http
           ? undefined
           : Buffer.concat(chunks),
       });
+      trace("worker");
       const r = await worker.fetch(request, env, {
         waitUntil: (job) => {
           Promise.resolve(job).catch(() => {});
         },
       });
+      trace("response", { status: r.status });
       res.writeHead(r.status, Object.fromEntries(r.headers));
-      res.end(Buffer.from(await r.arrayBuffer()));
-    } catch {
-      res.writeHead(500);
-      res.end("Local development request failed");
+      if (r.body) await pipeline(Readable.fromWeb(r.body), res);
+      else res.end();
+    } catch (error) {
+      trace("error", { code: error.code || error.name });
+      if (!res.headersSent) {
+        res.writeHead(500);
+        res.end("Local development request failed");
+      } else res.destroy();
     }
   })
   .listen(port, "127.0.0.1", () =>

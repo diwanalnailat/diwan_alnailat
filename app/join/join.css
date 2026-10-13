@@ -101,3 +101,33 @@
     padding-inline: 20px;
   }
 }
+.join-form input[type="file"] {
+  max-width: 100%;
+  min-width: 0;
+  font: inherit;
+}
+.join-files {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.join-files li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.join-files span {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.join-files button {
+  flex-shrink: 0;
+  min-height: 44px;
+  padding: 8px 12px;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  text-decoration: underline;
+  cursor: pointer;
+}

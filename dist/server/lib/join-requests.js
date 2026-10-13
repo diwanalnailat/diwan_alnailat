@@ -28,6 +28,13 @@ export async function joinPolicy(db) {
     : DEFAULT_JOIN_POLICY;
 }
 export const isJoinAdmin = (c) => c.can("users", "manage");
+// An acceptance receipt does not grant access to the application review queue.
+export const isOwnJoinAcceptance = (c, row) =>
+  !!c.u &&
+  c.u.status === "active" &&
+  row?.status === "approved" &&
+  row.member_id === c.u.id &&
+  row.phone === c.u.phone;
 export function isCommitteeSupervisor(committee, memberId) {
   return !!committee && committee.manager_id === memberId;
 }
@@ -84,17 +91,23 @@ export function joinAccess(c) {
     )
   );
 }
-export async function visibleJoinRequests(db, c) {
-  const list = isJoinAdmin(c)
+export async function visibleJoinRequests(db, c, id = "") {
+  const list = id
     ? await rows(
         db,
-        "SELECT * FROM nl_join_requests WHERE status<>'verifying' ORDER BY created DESC",
+        "SELECT * FROM nl_join_requests WHERE id=? AND status<>'verifying'",
+        string(id, 100),
       )
-    : await rows(
-        db,
-        "SELECT * FROM nl_join_requests WHERE assigned_to=? AND status<>'verifying' ORDER BY created DESC",
-        c.u.id,
-      );
+    : isJoinAdmin(c)
+      ? await rows(
+          db,
+          "SELECT * FROM nl_join_requests WHERE status<>'verifying' ORDER BY created DESC",
+        )
+      : await rows(
+          db,
+          "SELECT * FROM nl_join_requests WHERE assigned_to=? AND status<>'verifying' ORDER BY created DESC",
+          c.u.id,
+        );
   return list.filter((r) => mayReadJoin(c, r));
 }
 export function joinNotice(db, memberId, request, title, whatsapp = true) {
@@ -132,18 +145,40 @@ const audit = (db, c, action, id) =>
       "INSERT INTO nl_audit(id,actor,action,resource,entity_id,detail,created) VALUES(?,?,?,'join_requests',?,'',?)",
     )
     .bind(uid(), c.u.id, action, id, stamp());
-export async function joinDashboard(db, c) {
+export async function joinDashboard(db, c, id = "") {
   const admin = isJoinAdmin(c);
-  const list = await visibleJoinRequests(db, c);
-  const people = await rows(
-    db,
-    "SELECT id,name,status FROM nl_members WHERE status='active'",
-  );
+  const list = await visibleJoinRequests(db, c, id);
+  const relevantCommittees = id
+    ? c.committees.filter((k) => list.some((r) => r.committee_id === k.id))
+    : [];
+  const needed = [
+    ...new Set(
+      [
+        ...list.map((r) => r.assigned_to),
+        ...(admin
+          ? relevantCommittees.flatMap((k) => [
+              k.manager_id,
+              ...parse(k.members, [])
+                .filter((m) => ["manager", "supervisor"].includes(m.role))
+                .map((m) => m.id),
+            ])
+          : []),
+      ].filter(Boolean),
+    ),
+  ];
+  const people = needed.length
+    ? await rows(
+        db,
+        `SELECT id,name,status FROM nl_members WHERE status='active' AND id IN (${needed.map(() => "?").join(",")})`,
+        ...needed,
+      )
+    : [];
   return {
     is_admin: admin,
     requests: list.map((r) => ({
       ...r,
       policy_snapshot: undefined,
+      attestation: parse(r.policy_snapshot).attestation || null,
       committee_name:
         c.committees.find((k) => k.id === r.committee_id)?.name || null,
       assigned_name: people.find((m) => m.id === r.assigned_to)?.name || null,
@@ -165,14 +200,28 @@ export async function joinDashboard(db, c) {
         mayReadJoin(c, r, "manage"),
     })),
     supervisors: admin
-      ? c.committees.flatMap((k) =>
+      ? relevantCommittees.flatMap((k) =>
           people
             .filter((m) => isCommitteeSupervisor(k, m.id))
             .map((m) => ({ id: m.id, name: m.name, committee_id: k.id })),
         )
       : [],
-    policy: await joinPolicy(db),
     can_edit_policy: admin,
+    attachments:
+      admin && id && list.length
+        ? (
+            await rows(
+              db,
+              "SELECT id,name,size,meta FROM nl_files WHERE entity_type='join_requests' AND entity_id=? ORDER BY created,id",
+              id,
+            )
+          ).map((f) => ({
+            id: f.id,
+            name: f.name,
+            size: f.size,
+            kind: parse(f.meta).kind,
+          }))
+        : [],
   };
 }
 export async function saveJoinPolicy(db, c, b) {
@@ -343,6 +392,15 @@ export async function reviewJoin(db, c, b, action) {
       r.id,
     ),
   );
+  if (memberId)
+    statements.push(
+      ...joinNotice(
+        db,
+        memberId,
+        r,
+        `تم قبول طلب انضمامك إلى ديوان النائلات من ${isJoinAdmin(c) ? "إدارة الديوان" : "مشرف اللجنة"}.`,
+      ),
+    );
   await db.batch(statements);
   return { ok: true, member_id: memberId };
 }

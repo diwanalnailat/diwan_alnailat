@@ -105,15 +105,55 @@ export async function openai(env, body) {
       ...body,
     }),
   });
-  if (!r.ok)
+  if (!r.ok) {
+    await r.body?.cancel().catch(() => {});
     throw integrationError(
       r.status === 429
         ? "مزود الذكاء الاصطناعي بلغ حد الاستخدام. يمكنك استكمال النموذج يدويًا."
         : "تعذر تشغيل سَنَد لدى المزود. جرّب لاحقًا.",
       r.status === 429 ? 429 : 502,
     );
-  const d = await r.json();
-  if (d.status === "incomplete" || d.error)
+  }
+  let d;
+  try {
+    d = JSON.parse(new TextDecoder().decode(await boundedBody(r, 512 * 1024)));
+    if (!d || !Array.isArray(d.output) || d.output.length > 64)
+      throw new Error();
+    for (const item of d.output) {
+      if (!item || typeof item !== "object") throw new Error();
+      if (
+        item.type === "function_call" &&
+        (typeof item.name !== "string" ||
+          item.name.length > 100 ||
+          typeof item.call_id !== "string" ||
+          item.call_id.length > 200 ||
+          typeof item.arguments !== "string" ||
+          item.arguments.length > 64000)
+      )
+        throw new Error();
+      if (
+        item.type === "message" &&
+        (!Array.isArray(item.content) ||
+          item.content.some(
+            (part) =>
+              !part ||
+              (part.type === "output_text" && typeof part.text !== "string"),
+          ))
+      )
+        throw new Error();
+    }
+    if (
+      d.usage?.total_tokens !== undefined &&
+      (!Number.isSafeInteger(d.usage.total_tokens) || d.usage.total_tokens < 0)
+    )
+      throw new Error();
+  } catch {
+    throw integrationError(
+      "تعذر التحقق من استجابة سَنَد لدى المزود. حاول مجددًا.",
+      502,
+    );
+  }
+  if (d.status !== "completed" || d.error)
     throw integrationError("لم تكتمل إجابة سَنَد. حاول تقليل الطلب.", 502);
   return d;
 }

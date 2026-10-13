@@ -1,6 +1,6 @@
 import "server-only";
 import { postgresDatabase } from "./postgres.js";
-import { supabaseStorage } from "./supabase-storage.js";
+import { supabaseStorage, joinAttachmentStorage } from "./supabase-storage.js";
 let database;
 const developmentDatabase = Symbol.for("diwan.development.database");
 export async function serverEnvironment() {
@@ -19,6 +19,7 @@ export async function serverEnvironment() {
     ...process.env,
     DB: await database,
     BUCKET: supabaseStorage(process.env),
+    JOIN_BUCKET: joinAttachmentStorage(process.env),
     DIWAN_RUNTIME: "vercel_whatsapp",
   };
 }

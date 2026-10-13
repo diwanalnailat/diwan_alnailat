@@ -178,11 +178,18 @@ test("expenses: committee context, obsolete classification ignored, receipt requ
     assert.equal((await a.req("expenses/save", basic, a.member)).status, 400);
     const draft = await a.req(
       "expenses/save",
-      { ...basic, status: "draft", budget_line_id: "freeform", category: "forged classification" },
+      {
+        ...basic,
+        status: "draft",
+        budget_line_id: "freeform",
+        category: "forged classification",
+      },
       a.member,
     );
     ok(draft);
-    const draftRow = await a.DB.prepare("SELECT * FROM nl_expenses WHERE id=?").bind(draft.data.id).first();
+    const draftRow = await a.DB.prepare("SELECT * FROM nl_expenses WHERE id=?")
+      .bind(draft.data.id)
+      .first();
     assert.equal(draftRow.category, "");
     assert.equal(JSON.parse(draftRow.meta).budget_line_id, undefined);
     assert.equal(JSON.parse(draftRow.meta).budget_line_name, undefined);
@@ -250,6 +257,16 @@ test("expenses: committee context, obsolete classification ignored, receipt requ
     );
     e = (await state(a)).expenses.find((e) => e.id === id);
     assert.equal(e.paid, 10000);
+    const paidAttachment = await a.DB.prepare(
+      "SELECT meta FROM nl_files WHERE id=?",
+    )
+      .bind(file)
+      .first();
+    assert.equal(
+      JSON.parse(paidAttachment.meta).storage.version,
+      1,
+      "payment binding preserves original-byte encoding/checksum metadata",
+    );
     const bad = await upload(a, "expenses", "reimbursement", owner, {
       entity: id,
       attach_later: "true",
@@ -266,7 +283,10 @@ test("expenses: committee context, obsolete classification ignored, receipt requ
       ).status,
       409,
     );
-    assert.equal((await state(a, a.member)).expenses.find((e) => e.id === id).paid, 10000);
+    assert.equal(
+      (await state(a, a.member)).expenses.find((e) => e.id === id).paid,
+      10000,
+    );
   } finally {
     a.DB.close();
   }

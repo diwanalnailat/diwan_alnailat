@@ -5352,6 +5352,89 @@ body {
 .map-picker footer[hidden] {
   display: none;
 }
+.role-dashboard-hero {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 24px;
+  padding: 32px 0;
+  border-bottom: 1px solid var(--line, #d8d6c9);
+  margin-bottom: 24px;
+}
+.role-dashboard-hero h1 {
+  font-size: clamp(1.8rem, 3.5vw, 2.75rem);
+  margin: 12px 0;
+  line-height: 1.5;
+}
+.role-dashboard-hero p {
+  color: var(--muted);
+  max-width: 60ch;
+  line-height: 1.9;
+  margin: 0;
+}
+.role-dashboard-filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.role-committee-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 24px;
+  padding: 22px;
+  border-bottom: 1px solid var(--line, #d8d6c9);
+  align-items: center;
+}
+.role-committee-row:last-child {
+  border-bottom: 0;
+}
+.role-committee-row h3 {
+  margin: 0;
+}
+.role-committee-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 16px 0 10px;
+  font-size: 0.85rem;
+}
+.role-locations {
+  padding: 0 18px 18px;
+}
+.role-locations .record-location {
+  flex-direction: column;
+  align-items: stretch;
+}
+.role-dashboard .command-main,
+.role-dashboard .command-aside {
+  min-width: 0;
+}
+@media (max-width: 700px) {
+  .role-dashboard-hero {
+    padding-top: 12px;
+  }
+  .role-committee-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+    padding: 18px;
+  }
+  .role-dashboard .metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .role-dashboard .metric-card {
+    min-width: 0;
+    padding: 16px;
+  }
+  .role-dashboard .command-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .role-dashboard-hero .page-actions {
+    width: 100%;
+  }
+}
 .map-link-field {
   margin: 18px 0;
 }
@@ -6223,5 +6306,82 @@ body {
   .permission-targets .member-tabs {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+/* Administrative approvals reuse the workspace palette and dialog. */
+.approval-list {
+  padding: 0 24px;
+}
+.approval-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 24px 0;
+  border-bottom: 1px solid var(--line);
+}
+.approval-card > div {
+  min-width: 0;
+}
+.approval-card h2 {
+  font-size: 18px;
+  margin: 8px 0 12px;
+  overflow-wrap: anywhere;
+}
+.approval-card p {
+  margin: 8px 0;
+  overflow-wrap: anywhere;
+}
+.approval-card > .button {
+  flex-shrink: 0;
+}
+.approval-badges,
+.approval-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.approval-pagination {
+  justify-content: flex-end;
+  padding: 20px 24px;
+}
+.approval-detail .detail-meta {
+  margin: 0;
+}
+.approval-detail dt {
+  color: var(--muted);
+}
+.approval-detail dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.approval-history {
+  border-bottom: 1px solid var(--line);
+  padding: 16px 0;
+}
+.approval-history small {
+  display: block;
+  color: var(--muted);
+  margin-top: 6px;
+}
+#taskApprovals > [role] {
+  padding: 24px;
+}
+@media (max-width: 640px) {
+  .approval-list {
+    padding: 0 16px;
+  }
+  .approval-card {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+    padding: 20px 0;
+  }
+  .approval-card > .button {
+    width: 100%;
+    min-height: 44px;
+  }
+  .approval-detail .attachment {
+    flex-wrap: wrap;
   }
 }

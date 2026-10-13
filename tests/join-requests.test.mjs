@@ -57,6 +57,7 @@ test("verified applications stay private until referral; decisions create login-
     committee_id: "committee-a",
     policy_version: 0,
     consent: true,
+    attestation: true,
   };
   try {
     for (const id of [
@@ -168,7 +169,7 @@ test("verified applications stay private until referral; decisions create login-
     assert.equal(list.length, 1);
     let application = list[0];
     assert.equal(application.phone, "+966500000001");
-    const routing = (await api("join-requests", "admin")).data.supervisors;
+    const routing = (await api("join-requests?id=" + application.id, "admin")).data.supervisors;
     assert.deepEqual(
       routing.filter((m) => m.committee_id === "committee-a").map((m) => m.id),
       ["manager-a"],
@@ -365,6 +366,30 @@ test("verified applications stay private until referral; decisions create login-
     assert.equal(member.verified, 1);
     assert.equal(member.status, "active");
     assert.equal(member.grants, "[]");
+    const supervisorNotice =
+      "تم قبول طلب انضمامك إلى ديوان النائلات من مشرف اللجنة.";
+    const receipt = (await api("state?view=notifications", member.id)).data
+      .notifications;
+    assert.equal(receipt.length, 1);
+    assert.equal(receipt[0].title, supervisorNotice);
+    assert.equal(receipt[0].member_receipt, true);
+    assert.equal(
+      (await api("join-requests", member.id)).data.requests.length,
+      0,
+    );
+    assert.equal(
+      (await api("join-requests?id=" + application.id, member.id)).data.requests
+        .length,
+      0,
+    );
+    assert.equal(
+      (await api("state?view=notifications", "outsider")).data.notifications
+        .length,
+      0,
+    );
+    assert.equal((await dispatchNotifications(env)).accepted, 1);
+    assert.equal(messages.at(-1).message, supervisorNotice);
+    assert.equal(messages.at(-1).chatId, "966500000001@c.us");
     const committee = await DB.prepare(
       "SELECT members FROM nl_committees WHERE id='committee-a'",
     ).first();
@@ -383,6 +408,17 @@ test("verified applications stay private until referral; decisions create login-
       409,
     );
     // New accounts authenticate with the existing WhatsApp login, without Sites ids.
+    assert.equal((await dispatchNotifications(env)).accepted, 0);
+    assert.equal(
+      (
+        await DB.prepare(
+          "SELECT count(*) AS n FROM nl_notifications WHERE member_id=? AND entity_id=?",
+        )
+          .bind(member.id, application.id)
+          .first()
+      ).n,
+      2,
+    );
     const login = await loginEndpoint(
       req({ phone: member.phone, consent: true }),
       env,
@@ -450,6 +486,53 @@ test("verified applications stay private until referral; decisions create login-
       null,
     );
     // Terms are versioned, with consent checked again before final submission.
+    // Direct administration approval uses its own wording; rejection above did
+    // not create a receipt. All provider calls remain mocked.
+    await DB.prepare(
+      "INSERT INTO nl_join_requests(id,name,phone,reason,policy_version,policy_snapshot,consent_at,verified_at,status,created,updated) SELECT 'admin-acceptance',name,'+966500000003',reason,policy_version,policy_snapshot,consent_at,verified_at,'pending',created,updated FROM nl_join_requests WHERE id=?",
+    )
+      .bind(dr.id)
+      .run();
+    const adminDecision = await api("join-requests/decide", "admin", {
+      id: "admin-acceptance",
+      version: 1,
+      decision: "approve",
+    });
+    assert.equal(adminDecision.status, 200, JSON.stringify(adminDecision));
+    const adminNotice =
+      "تم قبول طلب انضمامك إلى ديوان النائلات من إدارة الديوان.";
+    const adminReceipt = (
+      await api("state?view=notifications", adminDecision.data.member_id)
+    ).data.notifications;
+    assert.equal(adminReceipt[0].title, adminNotice);
+    await dispatchNotifications(env);
+    assert.equal(messages.filter((m) => m.message === adminNotice).length, 1);
+    assert.equal(
+      messages.find((m) => m.message === adminNotice).chatId,
+      "966500000003@c.us",
+    );
+    assert.equal((await dispatchNotifications(env)).accepted, 0);
+    // A previously saved WhatsApp opt-out remains effective for an existing member.
+    await DB.prepare(
+      "INSERT INTO nl_contact_preferences(member_id,whatsapp,consent_at) VALUES(?,0,?)",
+    )
+      .bind(adminDecision.data.member_id, new Date().toISOString())
+      .run();
+    await DB.prepare(
+      "INSERT INTO nl_join_requests(id,name,phone,reason,policy_version,policy_snapshot,consent_at,verified_at,status,created,updated) SELECT 'opt-out-acceptance',name,phone,reason,policy_version,policy_snapshot,consent_at,verified_at,'pending',created,updated FROM nl_join_requests WHERE id='admin-acceptance'",
+    ).run();
+    assert.equal(
+      (
+        await api("join-requests/decide", "admin", {
+          id: "opt-out-acceptance",
+          version: 1,
+          decision: "approve",
+        })
+      ).status,
+      200,
+    );
+    assert.equal((await dispatchNotifications(env)).accepted, 0);
+    assert.equal(messages.filter((m) => m.message === adminNotice).length, 1);
     assert.equal(
       (
         await api("join-policy/save", "manager-a", {

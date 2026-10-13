@@ -4,6 +4,24 @@ import "../public/workspace.js";
 
 const derive = globalThis.DiwanWorkspace.derive;
 const options = { today: "2026-09-15", can: () => true };
+test("completion decision follows selected reviewer without requiring task edit", () => {
+  const state = fixture();
+  state.tasks.find((task) => task.id === "review").meta.reviewer_id =
+    "reviewer";
+  const can = (resource, action) =>
+    resource === "tasks" && ["view", "approve"].includes(action);
+  assert.ok(
+    !derive(state, { ...options, can }).decisions.some(
+      (item) => item.id === "review",
+    ),
+  );
+  state.user.id = "reviewer";
+  assert.ok(
+    derive(state, { ...options, can }).decisions.some(
+      (item) => item.id === "review",
+    ),
+  );
+});
 function fixture() {
   return {
     user: { id: "manager", status: "active" },
@@ -221,13 +239,13 @@ test("review decisions honor the effective route and exclude creators claimants 
   assert.equal(derive(state, options).decisions.length, 0);
 });
 
-test("task review requires the current manager and view edit approve permissions and an open project", () => {
+test("task review requires the selected reviewer or default manager, view and approve, and an open project", () => {
   const state = fixture();
   const base = state.tasks[1];
   state.tasks.push(
     {
       ...base,
-      id: "wrong-manager",
+      id: "selected-reviewer",
       meta: { committee_id: "c2", reviewer_id: "manager" },
     },
     {
@@ -241,9 +259,9 @@ test("task review requires the current manager and view edit approve permissions
     derive(state, options)
       .decisions.filter((row) => row.resource === "tasks")
       .map((row) => row.id),
-    ["review"],
+    ["review", "selected-reviewer"],
   );
-  for (const denied of ["view", "edit", "approve"]) {
+  for (const denied of ["view", "approve"]) {
     const view = derive(state, {
       ...options,
       can: (resource, action) => resource !== "tasks" || action !== denied,

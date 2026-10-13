@@ -14,6 +14,12 @@ export async function postgresTestDatabase() {
   await db.exec(
     await fs.readFile("supabase/drizzle/0003_join_requests.sql", "utf8"),
   );
+  await db.exec(
+    await fs.readFile("supabase/drizzle/0004_task_administration.sql", "utf8"),
+  );
+  await db.exec(
+    await fs.readFile("supabase/drizzle/0005_operational_indexes.sql", "utf8"),
+  );
   const query = (client) => async (sql, params) => {
     const result = await client.query(sql, params);
     return {

@@ -119,6 +119,10 @@ export const expenses = sqliteTable(
   },
   (t) => [
     index("nl_expenses_project").on(t.projectId),
+    index("nl_expenses_project_task").on(
+      t.projectId,
+      sql`json_extract(meta,'$.task_id')`,
+    ),
     uniqueIndex("nl_expense_invoice_unique").on(
       t.projectId,
       t.supplierId,
@@ -208,7 +212,10 @@ export const files = sqliteTable(
     createdBy: text("created_by").notNull(),
     created: text("created").notNull(),
   },
-  (t) => [index("nl_files_entity").on(t.entityType, t.entityId)],
+  (t) => [
+    index("nl_files_entity").on(t.entityType, t.entityId),
+    index("nl_files_type_created").on(t.entityType, t.created),
+  ],
 );
 export const comments = sqliteTable(
   "nl_comments",
@@ -250,7 +257,14 @@ export const audit = sqliteTable(
     detail: text("detail").notNull().default(""),
     created: text("created").notNull(),
   },
-  (t) => [index("nl_audit_created").on(t.created)],
+  (t) => [
+    index("nl_audit_created").on(t.created),
+    index("nl_audit_resource_entity_created").on(
+      t.resource,
+      t.entityId,
+      t.created,
+    ),
+  ],
 );
 export const notifications = sqliteTable(
   "nl_notifications",
@@ -432,6 +446,38 @@ export const joinRequests = sqliteTable(
     check(
       "nl_join_referral",
       sql`${t.status}<>'referred' OR (${t.assignedTo} IS NOT NULL AND ${t.committeeId} IS NOT NULL)`,
+    ),
+  ],
+);
+
+// Administrative follow-up is independent from execution and expense approvals.
+export const taskApprovals = sqliteTable(
+  "nl_task_approvals",
+  {
+    taskId: text("task_id")
+      .primaryKey()
+      .references(() => tasks.id),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id),
+    committeeId: text("committee_id")
+      .notNull()
+      .references(() => committees.id),
+    status: text("status").notNull().default("pending"),
+    paymentHold: integer("payment_hold").notNull().default(0),
+    snapshot: text("snapshot").notNull().default("{}"),
+    version: integer("version").notNull().default(1),
+    created: text("created").notNull(),
+    updated: text("updated").notNull(),
+  },
+  (t) => [
+    index("nl_task_approvals_project").on(t.projectId, t.taskId),
+    index("nl_task_approvals_committee").on(t.committeeId, t.taskId),
+    index("nl_task_approvals_status").on(t.status, t.taskId),
+    check("nl_task_approval_hold", sql`${t.paymentHold} IN (0,1)`),
+    check(
+      "nl_task_approval_status",
+      sql`${t.status} IN ('pending','approved','on_hold','finance','clarification')`,
     ),
   ],
 );
