@@ -62,6 +62,11 @@ import {
   canReadSupplierFile,
 } from "./lib/media-access.js";
 import { validateSanadConfig, sanadConfig } from "./lib/sanad-policy.js";
+import {
+  taskChecklistInput,
+  generateTaskChecklist,
+  saveTaskChecklist,
+} from "./lib/sanad-task-checklist.js";
 import { readiness, maintain } from "./lib/operations.js";
 import {
   integrationStatus,
@@ -2665,21 +2670,12 @@ async function handle(req, env) {
         "إرفاق النسخة النهائية للمراجعة",
       ],
     };
-    if (!old)
-      meta.checklist = (
-        controlledSteps[meta.type] || controlledSteps.execution
-      ).map((text) => ({
-        id: uid(),
-        text,
-        done: false,
-      }));
-    else if (
-      JSON.stringify((meta.checklist || []).map((x) => [x.id, x.text])) !==
-      JSON.stringify(
-        (parse(old.meta).checklist || []).map((x) => [x.id, x.text]),
-      )
-    )
-      fail("خطوات المهمة ثابتة؛ حدّث الإنجاز من قائمة التحقق");
+    meta.checklist = saveTaskChecklist(
+      b.meta?.checklist,
+      old ? parse(old.meta).checklist || [] : null,
+      controlledSteps[meta.type] || controlledSteps.execution,
+      () => c.need("tasks", "assign", old),
+    );
     delete meta.tags;
     meta.section = "";
     meta.checklist = Array.isArray(meta.checklist)
@@ -4715,6 +4711,44 @@ async function handle(req, env) {
         fresh.need("assistant", "view");
         return accessTag(fresh, await state(db, fresh));
       }),
+    );
+  }
+  if (p === "/api/agent/task-checklist") {
+    const input = taskChecklistInput(b);
+    const committeeId = string(b.committee_id, 100);
+    const taskId = b.id ? string(b.id, 100) : null;
+    const authorize = async (access) => {
+      access.need("assistant", "view");
+      const committee = await record(db, "committees", committeeId);
+      const project = await record(db, "projects", committee.project_id);
+      const task = taskId ? await record(db, "tasks", taskId) : null;
+      const candidate = task || {
+        project_id: project.id,
+        committee_id: committeeId,
+        created_by: access.u.id,
+      };
+      access.need("tasks", task ? "edit" : "create", candidate);
+      if (task) {
+        access.need("tasks", "view", task);
+        access.need("tasks", "assign", task);
+        if (
+          task.project_id !== project.id ||
+          parse(task.meta).committee_id !== committeeId
+        )
+          fail("اختر لجنة المهمة نفسها", 403);
+        if (
+          ["review", "done"].includes(task.status) ||
+          (parse(task.meta).checklist || []).some((step) => step.done)
+        )
+          fail("لا يمكن إعادة توليد خطوات مهمة بدأ إنجازها", 409);
+      }
+      if (project.status === "closed") fail("المشروع مغلق", 403);
+    };
+    await authorize(c);
+    return json(
+      await generateTaskChecklist(env, c.u.id, input, async () =>
+        authorize(await context(req, env)),
+      ),
     );
   }
   if (p === "/api/extract") {

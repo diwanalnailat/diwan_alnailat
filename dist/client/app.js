@@ -2522,6 +2522,173 @@
         }
       });
   }
+  function taskChecklistFields(t, assign) {
+    const editable =
+      !t.id || (assign && !(t.meta.checklist || []).some((step) => step.done));
+    const canGenerate = editable && can("assistant", "view");
+    const steps = t.id
+      ? (t.meta.checklist || []).map((step) => step.text)
+      : typeSteps[t.meta.type || "execution"] || typeSteps.execution;
+    return `<div class="full template-preview" data-task-checklist>
+      ${field(
+        "لائحة التنفيذ — كل سطر خطوة",
+        textarea(
+          "checklist_text",
+          steps.join("\n"),
+          6,
+          `maxlength="40000" aria-describedby="taskChecklistState" ${editable ? "" : "readonly"}`,
+        ),
+        true,
+      )}
+      ${canGenerate ? `<div class="page-actions"><button type="button" class="button button-ghost" data-task-checklist-generate>${icon("assistant")} توليد لائحة التنفيذ مع سند</button></div>` : ""}
+      <p class="muted" id="taskChecklistState" role="status" aria-live="polite">${
+        editable
+          ? canGenerate
+            ? "أكمل عنوان المهمة وتعليمات التنفيذ ومعيار القبول ليولد سند اللائحة. راجع الخطوات وعدلها قبل حفظ المهمة."
+            : "اكتب خطوات التنفيذ وراجعها قبل حفظ المهمة. توليد سند يحتاج صلاحية استخدام المساعد."
+          : "تبقى خطوات التنفيذ المحفوظة كما هي؛ حدّث إنجازها من صفحة المهمة."
+      }</p>
+    </div>`;
+  }
+  function bindTaskChecklist(f, t) {
+    const button = f.querySelector("[data-task-checklist-generate]");
+    if (!button) {
+      f.elements.namedItem("checklist_text").addEventListener("input", () => {
+        f.taskChecklistEdited = true;
+      });
+      return;
+    }
+    const editor = f.elements.namedItem("checklist_text"),
+      status = f.querySelector("#taskChecklistState"),
+      names = ["title", "description", "outcome", "committee_id"];
+    let revision = 0,
+      timer,
+      lastAutomatic = "";
+    const payload = () =>
+      Object.fromEntries(
+        names.map((name) => [name, f.elements.namedItem(name).value.trim()]),
+      );
+    const message = (text) => {
+      status.textContent = text;
+    };
+    const invalidate = () => {
+      revision++;
+      clearTimeout(timer);
+      f.taskChecklistBusy = false;
+      button.disabled = false;
+      status.setAttribute("aria-busy", "false");
+    };
+    const generate = async (automatic = false) => {
+      clearTimeout(timer);
+      if (!f.isConnected || f.taskChecklistBusy) return false;
+      if (
+        automatic &&
+        (t.id || f.taskChecklistEdited || f.taskChecklistGenerated)
+      )
+        return false;
+      if (!S.integrations?.ai) {
+        message(
+          "توليد سند بانتظار تفعيل الخدمة. يمكنك كتابة خطوات التنفيذ يدويًا وحفظ المهمة.",
+        );
+        return false;
+      }
+      const values = payload(),
+        signature = JSON.stringify(values);
+      if (names.some((name) => !values[name])) {
+        message(
+          "أكمل عنوان المهمة وتعليمات التنفيذ ومعيار قبول الإنجاز واختر اللجنة أولًا.",
+        );
+        return false;
+      }
+      if (automatic && signature === lastAutomatic) return false;
+      lastAutomatic = signature;
+      f.taskChecklistAttempted = true;
+      const currentRevision = ++revision,
+        initialSteps = editor.value;
+      const current = () =>
+        f.isConnected &&
+        revision === currentRevision &&
+        JSON.stringify(payload()) === signature &&
+        editor.value === initialSteps;
+      f.taskChecklistBusy = true;
+      button.disabled = true;
+      status.setAttribute("aria-busy", "true");
+      message("سند يولد خطوات التنفيذ من المطلوب ومعيار القبول…");
+      try {
+        const result = await api("agent/task-checklist", {
+          ...values,
+          ...(t.id ? { id: t.id } : {}),
+        });
+        if (!current()) return false;
+        if (
+          !Array.isArray(result.steps) ||
+          !result.steps.length ||
+          result.steps.some((step) => typeof step !== "string")
+        )
+          throw Error("لم تكتمل اللائحة. حاول مجددًا أو اكتب الخطوات يدويًا.");
+        editor.value = result.steps.join("\n");
+        f.taskChecklistGenerated = true;
+        f.taskChecklistEdited = false;
+        message(
+          "جهز سند لائحة التنفيذ. راجع الخطوات وعدلها؛ لن تُحفظ إلا عند حفظ المهمة.",
+        );
+        return true;
+      } catch (error) {
+        if (current())
+          message(
+            error.message +
+              " الخطوات الحالية محفوظة في النموذج ويمكن تعديلها يدويًا.",
+          );
+        return false;
+      } finally {
+        if (f.isConnected && revision === currentRevision) {
+          f.taskChecklistBusy = false;
+          button.disabled = false;
+          status.setAttribute("aria-busy", "false");
+        }
+      }
+    };
+    const schedule = () => {
+      clearTimeout(timer);
+      if (!t.id && !f.taskChecklistEdited && !f.taskChecklistGenerated)
+        timer = setTimeout(() => generate(true), 300);
+    };
+    for (const name of names) {
+      const input = f.elements.namedItem(name);
+      input.addEventListener("input", () => {
+        invalidate();
+        if (f.taskChecklistGenerated)
+          message(
+            "تغيرت بيانات المهمة. راجع اللائحة أو أعد توليدها لتطابق المطلوب الجديد.",
+          );
+      });
+      input.addEventListener("change", () => {
+        invalidate();
+        schedule();
+      });
+    }
+    editor.addEventListener("input", () => {
+      invalidate();
+      f.taskChecklistEdited = true;
+      message("تعديلاتك محفوظة في النموذج؛ لن يستبدلها سند تلقائيًا.");
+    });
+    button.addEventListener("click", () => generate(false));
+    f.prepareTaskChecklist = async () => {
+      if (f.taskChecklistBusy)
+        throw Error("انتظر اكتمال اللائحة وراجعها قبل حفظ المهمة.");
+      if (
+        !t.id &&
+        !f.taskChecklistAttempted &&
+        !f.taskChecklistEdited &&
+        S.integrations?.ai
+      ) {
+        await generate(true);
+        throw Error("راجع لائحة التنفيذ في النموذج ثم اضغط حفظ المهمة.");
+      }
+    };
+    f.closest("dialog")?.addEventListener("close", invalidate, { once: true });
+    schedule();
+  }
   function taskForm(id, options = {}) {
     let t = structuredClone(
       S.tasks.find((t) => t.id === id) || {
@@ -2627,8 +2794,9 @@
           ),
           true,
         )}`,
-      )}${part("2", "طريقة التنفيذ والمرفقات", "كل نوع مرفق يظهر في مكانه داخل المهمة.", `${(S.settings.customFields || []).map((x) => field(esc(x.name) + (x.required ? " *" : ""), x.type === "select" ? select("custom_" + x.id, [["", "اختر"], ...(x.options || []).map((v) => [v, v])], t.meta.custom?.[x.id] || "", x.required ? "required" : "") : input("custom_" + x.id, t.meta.custom?.[x.id] || "", x.type === "number" ? "number" : x.type === "date" ? "date" : "text", x.required ? "required" : ""))).join("")}${field("المطلوب وتعليمات التنفيذ *", textarea("description", t.description || "", 4, 'required placeholder="حدد المطلوب والكمية والمكان والتوقيت"'), true)}${field("معيار قبول الإنجاز *", textarea("outcome", t.meta.outcome || "", 2, 'required placeholder="ما النتيجة التي سيراجعها مدير اللجنة؟"'), true)}<div class="full template-preview"><strong>خطوات التنفيذ المعتمدة</strong><ol data-step-preview>${(t.id ? (t.meta.checklist || []).map((x) => x.text) : typeSteps[t.meta.type || "execution"] || typeSteps.execution).map((x) => `<li>${esc(x)}</li>`).join("")}</ol></div><div class="upload-grid full">${typedUpload("guideFiles", "دليل تنفيذ المهمة", "guide")}${typedUpload("referenceFiles", "مراجع ومواصفات", "reference")}</div><div class="voice-field full">${typedUpload("voiceFiles", "التوجيه الصوتي", "voice", "audio/*")}<button type="button" class="button" data-draft-voice>${icon("mic")} تسجيل توجيه صوتي</button><div data-voice-preview></div></div>`)}<input type="hidden" name="parent_id" value="${esc(t.parent_id || options.parent_id || "")}">${locationFields(t.meta.site_location)}${actions(t.id ? "حفظ التفاصيل" : "حفظ المهمة وإشعار المنفذ")}</form>`,
+      )}${part("2", "طريقة التنفيذ والمرفقات", "كل نوع مرفق يظهر في مكانه داخل المهمة.", `${(S.settings.customFields || []).map((x) => field(esc(x.name) + (x.required ? " *" : ""), x.type === "select" ? select("custom_" + x.id, [["", "اختر"], ...(x.options || []).map((v) => [v, v])], t.meta.custom?.[x.id] || "", x.required ? "required" : "") : input("custom_" + x.id, t.meta.custom?.[x.id] || "", x.type === "number" ? "number" : x.type === "date" ? "date" : "text", x.required ? "required" : ""))).join("")}${field("المطلوب وتعليمات التنفيذ *", textarea("description", t.description || "", 4, 'required placeholder="حدد المطلوب والكمية والمكان والتوقيت"'), true)}${field("معيار قبول الإنجاز *", textarea("outcome", t.meta.outcome || "", 2, 'required placeholder="ما النتيجة التي سيراجعها مدير اللجنة؟"'), true)}${taskChecklistFields(t, assign)}<div class="upload-grid full">${typedUpload("guideFiles", "دليل تنفيذ المهمة", "guide")}${typedUpload("referenceFiles", "مراجع ومواصفات", "reference")}</div><div class="voice-field full">${typedUpload("voiceFiles", "التوجيه الصوتي", "voice", "audio/*")}<button type="button" class="button" data-draft-voice>${icon("mic")} تسجيل توجيه صوتي</button><div data-voice-preview></div></div>`)}<input type="hidden" name="parent_id" value="${esc(t.parent_id || options.parent_id || "")}">${locationFields(t.meta.site_location)}${actions(t.id ? "حفظ التفاصيل" : "حفظ المهمة وإشعار المنفذ")}</form>`,
       async (fd, f) => {
+        await f.prepareTaskChecklist?.();
         if (f.voiceRecorder?.state === "recording")
           throw Error("أوقف التسجيل الصوتي قبل حفظ المهمة");
         if (f.dataset.extractedFile && f.analyzedFile) {
@@ -2704,7 +2872,18 @@
               ? fd.getAll("collaborators")
               : t.meta.collaborators || [],
             reviewer_id: assign ? v.reviewer_id : t.meta.reviewer_id,
-            checklist: t.meta.checklist || [],
+            checklist: f.elements.namedItem("checklist_text").readOnly
+              ? t.meta.checklist || []
+              : String(v.checklist_text || "")
+                  .split("\n")
+                  .map((text) => text.trim())
+                  .filter(Boolean)
+                  .map((text) => {
+                    const old = (t.meta.checklist || []).find(
+                      (step) => step.text === text,
+                    );
+                    return old ? { ...old } : { text, done: false };
+                  }),
           },
           files,
         };
@@ -2720,12 +2899,16 @@
     );
     const f = $("#modalBody form");
     bindDraftVoice(f);
+    bindTaskChecklist(f, t);
     f.querySelector("[name=task_type]")?.addEventListener("change", (e) => {
-      f.querySelector("[data-step-preview]").innerHTML = (
-        typeSteps[e.target.value] || typeSteps.execution
+      if (
+        !f.taskChecklistEdited &&
+        !f.taskChecklistGenerated &&
+        !f.taskChecklistBusy
       )
-        .map((x) => `<li>${esc(x)}</li>`)
-        .join("");
+        f.elements.namedItem("checklist_text").value = (
+          typeSteps[e.target.value] || typeSteps.execution
+        ).join("\n");
     });
     f.querySelector("[name=committee_id]")?.addEventListener("change", (e) => {
       const cc = S.committees.find((c) => c.id === e.target.value);
