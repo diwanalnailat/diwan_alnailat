@@ -1,6 +1,6 @@
 # Production review — 2026-10-14
 
-**Status: final integrated checks passed; publication and post-release verification pending.**
+**Status: core release published; independent monetary verification passed final provider tests and awaits follow-up publication. Operational scale/backup/scanning gates remain.**
 
 This review covers the existing Diwan application and the user's requested
 Sanad document extraction, permission boundaries and execution checklists.
@@ -13,7 +13,7 @@ the live release from changes still being prepared locally.
 | Area | Finding and current result |
 | --- | --- |
 | Documents | Financial extraction now supports PDF, images, text, DOCX and XLSX. Real OpenAI checks recovered expected invoice fields from synthetic examples, including an Arabic image. User changes remain authoritative; forms require review and explicit save. |
-| Financial interpretation | Missing tax remains missing, and foreign-currency amounts are not silently treated as SAR. An unrelated document containing injected instructions returned no financial fields. These are measured examples, not a guarantee for every document. |
+| Financial interpretation | Missing tax remains missing, and foreign-currency amounts are not silently treated as SAR. An unrelated document containing injected instructions returned no financial fields. Money is now independently reread with gpt-5.4 without seeing the first candidate values; only agreement in integer halala allows autofill. Disagreement, ambiguity or verification failure withholds the amount/tax. These are measured examples, not a guarantee for every document. |
 | Access and scope | Hidden-budget queries were refused with zero provider calls. Unrelated chat was refused. Existing scoped reads, deny/expiry rules, amount redaction, finance/export/file boundaries and post-provider authorization checks have automated regressions. |
 | Voice | A real Arabic transcription request succeeded with `gpt-4o-mini-transcribe`; transcription still needs user review. Production model configuration is saved; UI activation is checked after publication. |
 | Maintenance | Production inspection found no cron definitions and no previous maintenance result. Added authenticated daily Vercel maintenance at `0 3 * * *` (06:00 Riyadh), requiring a random server-only `CRON_SECRET` of at least 32 characters. The sensitive production secret is configured. Publication and the first scheduled execution remain to be observed; no cleanup of live data was invoked as a test. |
@@ -114,3 +114,13 @@ can grant authority or replace the established financial approvals.
 The current production expense form accepted a synthetic PDF and automatically filled invoice SYN-AUDIT-42, total115.00 and tax15.00 (upload200, extraction200). The dialog was canceled: no expense save, approval or payment occurred. One staged synthetic attachment remains subject to normal expiry. Business chat returned200 and an unrelated cooking/sports question was refused; one synthetic business-help conversation was retained under normal retention. A final real isolated-model check after refining trusted UI guidance correctly described automatic fields, user-selected committee/payment source and explicit review. Evidence: `diwan-live-invoice-autofill.json`, `diwan-live-chat-{business,outside}.json`, `diwan-sanad-invoice-guidance-live.json`.
 
 Final input identities and credential scan: `diwan-final-manifest.json`. Full npm audit retains5 high advisory entries caused by one unpatched development-only braces dependency chain; production-only audit reports0. Do not apply a breaking ESLint downgrade to conceal this.
+
+## Post-release finding requiring follow-up
+
+Release83ad24a / dpl_H57jtcmVYwuNBQssyW97TiWF4uow is READY and exact client artifacts match production.24mobilelight sections and6desktopdark sections pass the selected axe rules, with no network/runtime errors. The roster request occurs only on opening its dialog; DOCX autofill returns115/15. However, a repeat of the same Arabic image on production read23000/3000 instead of230/30. Earlier successful extraction is not evidence of reliable correction. Further isolated gpt-4.1 reads also misinterpreted the decimal. Financial extraction readiness remains conditional while stronger verification is investigated; amounts must not be guessed. Evidence: diwan-final-arabic-invoice-live.json and diwan-invoice-model-compare.json.
+
+## Monetary verification follow-up
+
+Single-model prompt refinement did not reliably fix the Arabic image. Both gpt-4.1 and repeated gpt-5.4 trials misread it in different ways; switching models alone was rejected. The final implementation performs independent blind monetary verification, compares strictly parsed values in halala, and withholds any field when verification disagrees, is ambiguous or fails. The primary reading never supplies candidate amounts to the verifier. This mitigates the observed failure; agreement is not a guarantee against common OCR errors, so human review remains required.
+
+Real final tests: the exact ambiguous Arabic image yields amount=null and tax=null with other fields preserved; the clear English PDF still yields115.00/15.00. Observed endpoint times were12.4s and4.0s. SQLite26/26 and PostgreSQL12/12 affected checks passed; final integrated suite225/225 and build passed; preceding full PostgreSQL222/222 is supplemented by the12/12 changed-extraction checks. Publication is recorded in the task state. Evidence: `diwan-invoice-final-dualread.json`, `diwan-invoice-final-pdf-dualread.json`, `diwan-invoice-verification-tests.log`. Production server variable `OPENAI_INVOICE_VERIFY_MODEL=gpt-5.4` is configured. Extraction may make two model calls per action under the existing action quotas; additional latency/cost are deliberate safeguards.

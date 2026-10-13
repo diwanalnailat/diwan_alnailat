@@ -55,7 +55,7 @@ test("ordinary committee member extracts own financial draft without finance-wid
     assert.equal(result.status, 200, JSON.stringify(result.data));
     assert.equal(result.data.fields.amount.value, "115.00");
     assert.equal(result.data.requires_review, true);
-    assert.equal(calls.length, 1);
+    assert.equal(calls.length, 2);
     assert.match(calls[0].instructions, /غير موثوقة/);
     assert.match(calls[0].instructions, /غير المالي/);
     assert.equal(calls[0].tools, undefined);
@@ -121,7 +121,7 @@ test("invoice extraction rechecks revocation and account suspension after provid
       const result = await a.req("extract", { file_id: file }, a.member);
       assert.equal(result.status, 403);
       assert.ok(!JSON.stringify(result.data).includes("INV-42"));
-      assert.equal(calls.length, 1);
+      assert.equal(calls.length, 2);
     } finally {
       await a.DB.close();
     }
@@ -168,7 +168,7 @@ test("existing expense requires edit and editable state; closed projects and unr
       (await a.req("extract", { file_id: file }, a.member)).status,
       403,
     );
-    assert.equal(calls.length, 1);
+    assert.equal(calls.length, 2);
   } finally {
     await a.DB.close();
   }
@@ -228,7 +228,7 @@ test("extraction supports bounded plain text and refuses unsupported attachments
       (await a.req("extract", { file_id: file }, a.member)).status,
       400,
     );
-    assert.equal(calls.length, 1);
+    assert.equal(calls.length, 2);
   } finally {
     await a.DB.close();
   }
@@ -260,7 +260,7 @@ test("Word and Excel financial documents use bounded file inputs without exposin
       assert.ok(input.file_data.startsWith(`data:${mime};base64,`));
       assert.ok(!JSON.stringify(calls.at(-1)).includes(a.pid));
     }
-    assert.equal(calls.length, 2);
+    assert.equal(calls.length, 4);
   } finally {
     await a.DB.close();
   }
@@ -350,6 +350,147 @@ test("extraction normalizes source decimal separators and Arabic digits without 
       assert.equal(result.data.fields.amount.value, expected, raw);
       assert.equal(result.data.fields.tax.value, "0.00");
     }
+  } finally {
+    await a.DB.close();
+  }
+});
+
+test("independent money verification withholds decimal disagreements and never receives first-pass candidates", async () => {
+  const a = await fixture();
+  try {
+    const file = await draft(a);
+    provider(a);
+    a.env.OPENAI_INVOICE_VERIFY_MODEL = "independent-invoice-model";
+    const calls = [];
+    a.env.PROVIDER_FETCH = async (_, init) => {
+      const body = JSON.parse(init.body);
+      calls.push(body);
+      const fields = invoice();
+      if (body.text.format.name === "invoice_money_verification") {
+        assert.equal(body.model, "independent-invoice-model");
+        assert.ok(!JSON.stringify(body).includes("23000"));
+        assert.equal(body.tools, undefined);
+        fields.amount.value = "230.00";
+        fields.tax.value = "30.00";
+      } else {
+        fields.amount.value = "23000";
+        fields.tax.value = "3000";
+      }
+      return Response.json({
+        status: "completed",
+        output: [
+          {
+            type: "message",
+            content: [{ type: "output_text", text: JSON.stringify(fields) }],
+          },
+        ],
+      });
+    };
+    const result = await a.req("extract", { file_id: file }, a.member);
+    assert.equal(result.status, 200, JSON.stringify(result.data));
+    assert.deepEqual(result.data.fields.amount, {
+      value: null,
+      confidence: "uncertain",
+    });
+    assert.deepEqual(result.data.fields.tax, {
+      value: null,
+      confidence: "uncertain",
+    });
+    assert.equal(result.data.fields.number.value, "INV-42");
+    assert.equal(calls.length, 2);
+  } finally {
+    await a.DB.close();
+  }
+});
+
+test("money remains empty on verifier failure, malformed output, ambiguity or missing values", async () => {
+  for (const verification of [
+    () => new Response("provider failure", { status: 503 }),
+    () =>
+      Response.json({
+        status: "completed",
+        output: [
+          { type: "message", content: [{ type: "output_text", text: "null" }] },
+        ],
+      }),
+    () =>
+      Response.json({
+        status: "completed",
+        output: [
+          {
+            type: "message",
+            content: [
+              {
+                type: "output_text",
+                text: JSON.stringify({
+                  amount: { value: "115.00", confidence: "uncertain" },
+                  tax: { value: null, confidence: "missing" },
+                }),
+              },
+            ],
+          },
+        ],
+      }),
+  ]) {
+    const a = await fixture();
+    try {
+      const file = await draft(a);
+      provider(a);
+      a.env.PROVIDER_FETCH = async (_, init) =>
+        JSON.parse(init.body).text.format.name === "invoice_money_verification"
+          ? verification()
+          : Response.json({
+              status: "completed",
+              output: [
+                {
+                  type: "message",
+                  content: [
+                    { type: "output_text", text: JSON.stringify(invoice()) },
+                  ],
+                },
+              ],
+            });
+      const result = await a.req("extract", { file_id: file }, a.member);
+      assert.equal(result.status, 200, JSON.stringify(result.data));
+      for (const key of ["amount", "tax"])
+        assert.deepEqual(result.data.fields[key], {
+          value: null,
+          confidence: "uncertain",
+        });
+      assert.equal(result.data.fields.number.value, "INV-42");
+    } finally {
+      await a.DB.close();
+    }
+  }
+});
+
+test("verification compares monetary values in halala and preserves matching primary formatting", async () => {
+  const a = await fixture();
+  try {
+    const file = await draft(a);
+    provider(a);
+    a.env.PROVIDER_FETCH = async (_, init) => {
+      const fields = invoice();
+      if (
+        JSON.parse(init.body).text.format.name === "invoice_money_verification"
+      ) {
+        fields.amount.value = "١١٥٫٠٠";
+        fields.tax.value = "15";
+      }
+      return Response.json({
+        status: "completed",
+        output: [
+          {
+            type: "message",
+            content: [{ type: "output_text", text: JSON.stringify(fields) }],
+          },
+        ],
+      });
+    };
+    const result = await a.req("extract", { file_id: file }, a.member);
+    assert.equal(result.status, 200, JSON.stringify(result.data));
+    assert.equal(result.data.fields.amount.value, "115.00");
+    assert.equal(result.data.fields.tax.value, "15.00");
   } finally {
     await a.DB.close();
   }
