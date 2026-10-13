@@ -708,26 +708,34 @@ async function state(db, c, filter = "", env = {}, view = "", include = "") {
   // Resolve names after authorization. Ordinary screens must not read the
   // entire account directory just to label a handful of visible records.
   const memberRows = [];
-  const directoryRequested = plan.has("members") &&
-    (c.can("users", "view") || c.can("users", "manage"));
+  const directoryRequested =
+    plan.has("members") && (c.can("users", "view") || c.can("users", "manage"));
   if (directoryRequested) {
-    memberRows.push(...await all(db, "SELECT * FROM nl_members ORDER BY created"));
+    memberRows.push(
+      ...(await all(db, "SELECT * FROM nl_members ORDER BY created")),
+    );
   } else {
     if (plan.has("people")) {
       const ids = [...neededIds].filter(Boolean);
       // Scalar binds avoid JSON-driver coercion and stay within D1 bind limits.
       for (let offset = 0; offset < ids.length; offset += 80) {
         const chunk = ids.slice(offset, offset + 80);
-        memberRows.push(...await all(db,
-          `SELECT id,name,team,status FROM nl_members WHERE status='active' AND id IN (${chunk.map(() => "?").join(",")}) ORDER BY created`,
-          ...chunk,
-        ));
+        memberRows.push(
+          ...(await all(
+            db,
+            `SELECT id,name,team,status FROM nl_members WHERE status='active' AND id IN (${chunk.map(() => "?").join(",")}) ORDER BY created`,
+            ...chunk,
+          )),
+        );
       }
     }
     if (plan.has("pendingMembers") && c.can("users", "view")) {
-      memberRows.push(...await all(db,
-        "SELECT id,name,team,status,created FROM nl_members WHERE status='pending' ORDER BY created",
-      ));
+      memberRows.push(
+        ...(await all(
+          db,
+          "SELECT id,name,team,status,created FROM nl_members WHERE status='pending' ORDER BY created",
+        )),
+      );
     }
   }
   const canChoosePeople =
@@ -3839,16 +3847,14 @@ async function handle(req, env) {
         ...taskPaymentGuard(db, e),
         ...bindings,
         ...(b.files || []).map((fid) =>
-          db
-            .prepare("UPDATE nl_files SET meta=? WHERE id=?")
-            .bind(
-              JSON.stringify({
-                ...parse(files.find((f) => f?.id === fid)?.meta),
-                purpose: "reimbursement",
-                payment_id: id,
-              }),
-              fid,
-            ),
+          db.prepare("UPDATE nl_files SET meta=? WHERE id=?").bind(
+            JSON.stringify({
+              ...parse(files.find((f) => f?.id === fid)?.meta),
+              purpose: "reimbursement",
+              payment_id: id,
+            }),
+            fid,
+          ),
         ),
         audit(
           db,
@@ -4719,33 +4725,108 @@ async function handle(req, env) {
       string(b.file_id),
     );
     if (!file) fail("المرفق غير متاح", 404);
-    await assertFileRead(db, c, file);
     const meta = parse(file.meta);
-    if (!["invoice", "receipt"].includes(meta.purpose))
-      fail("اختر فاتورة أو إيصال دفع");
     if (
-      !["application/pdf", "image/png", "image/jpeg", "image/webp"].includes(
-        file.mime,
+      (file.entity_type === "draft"
+        ? meta.pending_resource
+        : file.entity_type) !== "expenses" ||
+      !["invoice", "receipt"].includes(meta.purpose)
+    )
+      fail("اختر فاتورة أو إيصال دفع");
+    const authorizeExtraction = async (access, currentFile) => {
+      access.need("assistant", "view");
+      await assertFileRead(db, access, currentFile);
+      const fm = parse(currentFile.meta);
+      if (
+        (currentFile.entity_type === "draft"
+          ? fm.pending_resource
+          : currentFile.entity_type) !== "expenses" ||
+        !["invoice", "receipt"].includes(fm.purpose)
       )
+        fail("اختر مستند مصروف متاحًا", 403);
+      const expenseId =
+        currentFile.entity_type === "expenses"
+          ? currentFile.entity_id
+          : currentFile.entity_id !== currentFile.created_by
+            ? currentFile.entity_id
+            : null;
+      const expense = expenseId
+        ? await record(db, "expenses", expenseId)
+        : null;
+      const candidate = expense || {
+        project_id: fm.project_id,
+        committee_id: fm.committee_id,
+        created_by: currentFile.created_by,
+      };
+      access.need("expenses", expense ? "edit" : "create", candidate);
+      if (
+        !fieldVisible(access.u, "expenses", "amount", candidate, access.bundles)
+      )
+        fail("المبلغ غير متاح لك", 403);
+      const project = await record(db, "projects", candidate.project_id);
+      const committee = await record(
+        db,
+        "committees",
+        parse(expense?.meta).committee_id || fm.committee_id,
+      );
+      if (project.status === "closed" || committee.project_id !== project.id)
+        fail("المستند غير متاح ضمن مشروع ولجنة المصروف", 403);
+      if (
+        !access.can("users", "manage") &&
+        committee.manager_id !== access.u.id &&
+        !parse(committee.members, []).some(
+          (member) => member.id === access.u.id,
+        ) &&
+        !access.can("expenses", "approve", candidate) &&
+        !access.can("expenses", "pay", candidate)
+      )
+        fail("يمكن قراءة إثبات المصروف ضمن لجانك فقط", 403);
+      if (expense && !["draft", "returned"].includes(expense.status))
+        fail("يمكن تعبئة المسودة أو الطلب المعاد فقط", 403);
+    };
+    await authorizeExtraction(c, file);
+    if (
+      ![
+        "application/pdf",
+        "image/png",
+        "image/jpeg",
+        "image/webp",
+        "text/plain",
+      ].includes(file.mime)
     )
       fail("صيغة غير مدعومة للتحليل");
     const object = await env.BUCKET.get(file.object_key);
     if (!object) fail("الملف غير متاح", 404);
     const bytes = await storedFileBytes(file, object);
+    if (file.mime === "text/plain" && bytes.length > 80000)
+      fail(
+        "المستند النصي طويل؛ استخدم مستندًا حتى 80 كيلوبايت أو أدخل الحقول يدويًا",
+        413,
+      );
     let base = "";
     for (let i = 0; i < bytes.length; i += 8192)
       base += String.fromCharCode(...bytes.subarray(i, i + 8192));
     const data = "data:" + file.mime + ";base64," + btoa(base);
-    return json(
-      await extractInvoice(
-        env,
-        c,
-        file,
-        file.mime === "application/pdf"
+    const result = await extractInvoice(
+      env,
+      c,
+      file,
+      file.mime === "text/plain"
+        ? { type: "input_text", text: new TextDecoder().decode(bytes) }
+        : file.mime === "application/pdf"
           ? { type: "input_file", filename: file.name, file_data: data }
           : { type: "input_image", image_url: data },
-      ),
     );
+    const fresh = await context(req, env);
+    const currentFile = await one(
+      db,
+      "SELECT * FROM nl_files WHERE id=?",
+      file.id,
+    );
+    if (!currentFile || currentFile.object_key !== file.object_key)
+      fail("تغير المرفق أثناء القراءة. أعد المحاولة", 409);
+    await authorizeExtraction(fresh, currentFile);
+    return json(result);
   }
   if (p === "/api/integrations/dispatch") {
     c.need("settings", "manage");

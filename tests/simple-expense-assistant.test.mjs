@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { fixture } from "./support.mjs";
+import { scopedProvider, fixture } from "./support.mjs";
 
 test("readiness and Sanad expense drafts work without a spending catalog", async () => {
   const a = await fixture();
@@ -27,7 +27,7 @@ test("readiness and Sanad expense drafts work without a spending catalog", async
       OPENAI_MODEL: "test-model",
     });
     let calls = 0;
-    a.env.PROVIDER_FETCH = async (_, init) => {
+    a.env.PROVIDER_FETCH = scopedProvider(async (_, init) => {
       const body = JSON.parse(init.body);
       assert.ok(!body.instructions.includes('"budget_lines"'));
       const prepare = body.tools.find((t) => t.name === "prepare_record");
@@ -70,7 +70,7 @@ test("readiness and Sanad expense drafts work without a spending catalog", async
           },
         ],
       });
-    };
+    });
     const result = await a.req(
       "agent/ask",
       { message: "جهز مسودة مصروف ضيافة", context: { committee_id: a.cid } },

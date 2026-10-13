@@ -50,7 +50,40 @@ Evidence files below are local `%TEMP%` artifacts; they contain no API keys.
 - Focused provider-mocked storage checks: **11/11**; operational migration/index
   checks: **2/2**; Sanad policy/tool regression checks: **12/12**. Their logs are
   `diwan-storage-audit-tests.log`, `diwan-operational-indexes-tests.log` and
-  `diwan-sanad-audit-tests.log`. A real OpenAI completion has not been verified.
+  `diwan-sanad-audit-tests.log`.
+- Real OpenAI verification on 2026-10-13T00:41Z passed using the user's locally
+  saved key and `gpt-4.1-mini`: a provider connectivity response plus two Sanad
+  requests through the real Worker against isolated synthetic SQLite records.
+  Both returned HTTP 200; the second successfully called `read_record`.
+  Evidence: `diwan-sanad-live-provider.json` and `diwan-sanad-live-workflow.json`.
+  This verifies provider/model integration, not production activation.
+
+## Sanad document and scope follow-up (2026-10-13)
+
+- Financial forms now read supported PDF, PNG/JPEG/WebP and plain-text uploads
+  automatically, filling blank or untouched defaults for review. User edits,
+  existing saved values and newer file selections take precedence. Saving and
+  sending for approval remain explicit actions; unsupported formats use manual entry.
+- Extraction requires the active member's assistant, file, expense create/edit
+  and amount access, plus an open project and eligible committee. Access and
+  attachment identity are checked again after the provider returns.
+- Chat classifies relevance before sending workspace data or tools. Unrelated
+  or malformed scope decisions never proceed to a business answer. Direct budget
+  questions without a visible budget receive a server-authored refusal with zero
+  model calls. Other phrasings still use field-redacted authorized records only.
+  Permission or policy changes invalidate conversation history. The semantic
+  classifier is a model-based control, not a guarantee against every wording.
+- Final `npm test`: **196/196 passed**; `npm run build` passed. JSDOM exercises
+  automatic extraction, preservation of edits/defaults, stale responses, explicit
+  save and unconfigured-provider behavior. Scoped PostgreSQL suites also passed.
+- Real OpenAI checks with synthetic data: **10/10** domain decisions matched
+  expectations; a member's PDF invoice returned the expected number/date/115.00
+  total/15.00 tax; an unrelated injected text document returned null fields;
+  a restricted member's budget question made zero model calls. No production
+  financial records were created. Evidence is in `%TEMP%/diwan-sanad-*-live.json`
+  and `diwan-sanad-finance-evidence.json`, with source hashes and execution logs.
+- Code release does not provision production credentials. Vercel environment
+  access remains pending; the user's key is verified locally and kept out of Git.
 
 ## Local account-volume observation
 
@@ -79,10 +112,11 @@ and `diwan-local-state-scale.mjs`.
    Implement scoped pagination/aggregation and indexed search, then measure a
    representative concurrent workload against the actual database, connection
    pool, storage quotas and deployment limits.
-2. **Sanad activation:** complete the secure OpenAI account/key flow, configure
-   the intended server environment, and verify an authenticated real request,
-   model access and spending limits. Mocked provider tests are not a live
-   connection. Model output must not replace the financial approval sequence.
+2. **Sanad activation:** the local key and real provider/model requests now pass.
+   Configure the intended production server environment, redeploy, and verify
+   an authenticated production request and spending limits. Available Vercel CLI
+   credentials do not have access to the Diwan project; production settings
+   have not been changed. Model output must not replace financial approvals.
 3. **Storage operations:** verify private bucket policies and quotas, scanning /
    quarantine, retention, scheduled cleanup and coordinated database/object
    restoration. Petabyte storage requires an agreed ingestion/lifecycle plan and

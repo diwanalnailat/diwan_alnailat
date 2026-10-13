@@ -3165,16 +3165,27 @@
             e.meta.payment_method || "transfer",
           ),
         )}${field("مرجع الدفع — إن وجد", input("payment_reference", e.meta.payment_reference || ""))}<div class="notice full" data-source-note></div>`,
-      )}${part("3", "الإثبات والاعتماد", "أرفق صورة أو PDF من جهازك، أو استخدم الكاميرا. لا يختار مقدم الطلب المعتمدين.", `<div class="upload-grid full">${typedUpload("invoiceFiles", "الفاتورة", "invoice", ".pdf,image/*")}${typedUpload("receiptFiles", "إيصال الدفع أو إثباته", "receipt", ".pdf,image/*")}</div><label class="button button-ghost full">${icon("calendar")} تصوير الفاتورة بالكاميرا<input type="file" name="cameraInvoice" accept="image/*" capture="environment" class="camera-input"></label>${e.id ? `<div class="full">${fileList(S.files.filter((f) => f.entity_type === "expenses" && f.entity_id === e.id))}</div>` : ""}<button type="button" class="button full" data-action="invoice-analyze">قراءة الفاتورة مع سَنَد</button><div id="extractionResult" class="notice full" hidden></div>${field("ملاحظات توضح المصروف", textarea("notes", e.meta.notes || "", 2), true)}<div class="approval-route full" data-approval-preview></div><input type="hidden" name="claimant_id" value="${claimant}"><input type="hidden" name="status" value="pending">`)}${actions("إرسال للاعتماد الأول", '<button type="submit" value="draft" class="button button-ghost">حفظ مسودة</button>')}</form>`,
+      )}${part("3", "الإثبات والاعتماد", "يقرأ سند PDF والصور والنصوص تلقائيًا ويعبئ الحقول الفارغة. راجعها قبل الإرسال؛ المستندات الأخرى تُرفق مع إدخال بياناتها يدويًا.", `<div class="upload-grid full">${typedUpload("invoiceFiles", "الفاتورة", "invoice", ".pdf,.txt,.docx,.xlsx,image/*")}${typedUpload("receiptFiles", "إيصال الدفع أو إثباته", "receipt", ".pdf,.txt,.docx,.xlsx,image/*")}</div><label class="button button-ghost full">${icon("calendar")} تصوير الفاتورة بالكاميرا<input type="file" name="cameraInvoice" accept="image/*" capture="environment" class="camera-input"></label>${e.id ? `<div class="full">${fileList(S.files.filter((f) => f.entity_type === "expenses" && f.entity_id === e.id))}</div>` : ""}<button type="button" class="button full" data-action="invoice-analyze">إعادة قراءة المستند مع سَنَد</button><div id="extractionResult" class="notice full" role="status" aria-live="polite" hidden></div>${field("ملاحظات توضح المصروف", textarea("notes", e.meta.notes || "", 2), true)}<div class="approval-route full" data-approval-preview></div><input type="hidden" name="claimant_id" value="${claimant}"><input type="hidden" name="status" value="pending">`)}${actions("إرسال للاعتماد الأول", '<button type="submit" value="draft" class="button button-ghost">حفظ مسودة</button>')}</form>`,
       async (fd, f, button) => {
-        if (f.dataset.extractedFile && f.analyzedFile) {
+        if (f.invoiceReading)
+          throw Error("انتظر اكتمال قراءة المستند ثم راجع البيانات قبل الحفظ.");
+        const cachedFiles = [...(f.invoiceUploads?.values() || [])].filter(
+          (item) =>
+            item.cid === f.querySelector("[name=committee_id]").value &&
+            [...f.querySelectorAll('input[type="file"]')].some(
+              (input) =>
+                input.name === item.input &&
+                [...input.files].some(
+                  (file) => invoiceFileKey(input.name, file) === item.key,
+                ),
+            ),
+        );
+        if (cachedFiles.length) {
           const cleaned = new FormData();
           for (const [k, v] of fd.entries())
             if (!(
               v instanceof File &&
-              v.name === f.analyzedFile.name &&
-              v.size === f.analyzedFile.size &&
-              v.lastModified === f.analyzedFile.lastModified
+              cachedFiles.some((item) => item.key === invoiceFileKey(k, v))
             ))
               cleaned.append(k, v);
           fd = cleaned;
@@ -3203,7 +3214,7 @@
             "لا تملك صلاحية إرسال المصروف للاعتماد. يمكنك حفظه كمسودة.",
           );
         const files = [
-          ...(f.dataset.extractedFile ? [f.dataset.extractedFile] : []),
+          ...cachedFiles.map((item) => item.id),
           ...(await typedFiles(
             fd,
             "invoiceFiles",
@@ -3251,6 +3262,18 @@
       true,
     );
     const f = $("#modalBody form");
+    f.dataset.expenseId = e.id || "";
+    f.invoiceUploads = new Map();
+    f.invoiceTouched = new Set();
+    f.invoiceFilled = new Set();
+    f.addEventListener("input", (event) => {
+      if (event.target.name) f.invoiceTouched.add(event.target.name);
+    });
+    const readButton = f.querySelector('[data-action="invoice-analyze"]');
+    for (const input of f.querySelectorAll('input[type="file"]'))
+      input.addEventListener("change", () =>
+        analyzeExpenseFile(readButton, input),
+      );
     const update = () => {
       const cc = S.committees.find(
           (c) =>
@@ -3306,6 +3329,7 @@
     update();
     f.querySelector("[name=funding_source]").onchange = update;
     f.querySelector("[name=committee_id]").onchange = () => {
+      f.invoiceGeneration = (f.invoiceGeneration || 0) + 1;
       const cc = S.committees.find(
         (c) => c.id === f.querySelector("[name=committee_id]").value,
       );
@@ -3341,6 +3365,7 @@
           )
           .join("");
       update();
+      analyzeExpenseFile(readButton);
     };
   }
   function expenseDetail(id) {
@@ -5425,67 +5450,140 @@
       '<div class="notice full">مسودة جهزها سَنَد. راجع الحقول وأكمل المطلوب؛ لا يُحفظ السجل ولا تُسند المهمة حتى ترسل النموذج.</div>',
     );
   }
-  async function analyzeExpenseFile(button) {
-    const f = button.closest("form"),
-      file = [...f.querySelectorAll("input[type=file]")]
-        .flatMap((i) => [...i.files])
-        .find(
-          (x) => x.type === "application/pdf" || x.type.startsWith("image/"),
-        );
-    if (!file) return toast("أرفق الفاتورة من جهازك أو صوّرها أولًا.", true);
+  const invoiceFileKey = (input, file) =>
+    JSON.stringify([input, file.name, file.size, file.lastModified, file.type]);
+  async function analyzeExpenseFile(button, changedInput = null) {
+    const f = button.closest("form");
+    const selected = [
+      ...(changedInput
+        ? [changedInput]
+        : f.querySelectorAll("input[type=file]")),
+    ].flatMap((input) => [...input.files].map((file) => ({ input, file })));
+    const generation = (f.invoiceGeneration = (f.invoiceGeneration || 0) + 1);
+    f.invoiceReading = false;
+    button.disabled = false;
+    const out = f.querySelector("#extractionResult");
+    out.hidden = !selected.length;
+    out.setAttribute("aria-busy", "false");
+    if (!selected.length) return;
+    if (!S.integrations?.ai) {
+      out.textContent =
+        "قراءة المستندات بسند بانتظار تفعيل الربط. أدخل البيانات يدويًا؛ سيُرفق المستند عند حفظ المصروف.";
+      return;
+    }
     const cid = f.querySelector("[name=committee_id]").value,
       c = S.committees.find((c) => c.id === cid);
+    const current = () =>
+      f.isConnected &&
+      f.closest("dialog")?.open &&
+      f.invoiceGeneration === generation &&
+      f.querySelector("[name=committee_id]").value === cid;
+    if (!c) return;
+    const initial = Object.fromEntries(
+      ["number", "date", "amount", "tax", "title", "supplier_id"].map(
+        (name) => [name, f.elements.namedItem(name).value],
+      ),
+    );
+    const mayFill = (name) =>
+      !f.invoiceTouched.has(name) &&
+      !f.invoiceFilled.has(name) &&
+      f.elements.namedItem(name).value === initial[name] &&
+      (initial[name] === "" ||
+        (!f.dataset.expenseId &&
+          ((["tax", "amount"].includes(name) && initial[name] === "0") ||
+            (name === "date" && initial[name] === today()))));
+    f.invoiceReading = true;
     button.disabled = true;
-    const out = f.querySelector("#extractionResult");
-    out.hidden = false;
-    out.textContent = "جارٍ قراءة الفاتورة…";
+    out.setAttribute("aria-busy", "true");
+    out.textContent = "جارٍ قراءة المستند وتعبئة الحقول الفارغة…";
     try {
-      const fd = new FormData();
-      fd.set("file", file);
-      fd.set("purpose", "invoice");
-      fd.set("resource", "expenses");
-      fd.set("project", c.project_id);
-      fd.set("committee", c.id);
-      const up = await fetch("/api/upload", { method: "POST", body: fd }),
-        u = await up.json();
-      if (!up.ok) throw new Error(u.error);
-      f.dataset.extractedFile = u.id;
-      f.analyzedFile = file;
-      const d = await api("extract", { file_id: u.id });
-      const labels = {
-        number: "رقم الفاتورة",
-        date: "التاريخ",
-        amount: "الإجمالي",
-        tax: "الضريبة",
-        description: "وصف المصروف",
-        supplier_name: "اسم المورد",
-      };
-      out.innerHTML =
-        "<strong>قراءة الفاتورة · راجع الحقول قبل إرسالها</strong>" +
-        Object.entries(d.fields)
-          .map(
-            ([k, x]) =>
-              `<div class="extraction-row"><span>${labels[k]}</span><b>${x.value === null ? "يحتاج إدخالًا يدويًا" : esc(x.value)}</b><small>${x.confidence === "clear" ? "مقروء" : "غير مؤكد"}</small></div>`,
-          )
-          .join("");
-      for (const [k, x] of Object.entries(d.fields)) {
-        if (x.value === null) continue;
-        let el = f.elements.namedItem(k === "description" ? "title" : k);
-        if (k === "supplier_name") {
-          const matches = S.suppliers.filter(
-            (s) => s.name.trim() === x.value.trim(),
-          );
-          if (matches.length === 1)
-            f.elements.namedItem("supplier_id").value = matches[0].id;
+      for (const { input, file } of selected) {
+        if (!current()) return;
+        if (
+          ![
+            "application/pdf",
+            "image/png",
+            "image/jpeg",
+            "image/webp",
+            "text/plain",
+          ].includes(file.type)
+        ) {
+          out.textContent =
+            "القراءة التلقائية تدعم PDF وPNG وJPEG وWebP والنصوص. أدخل بيانات هذا النوع يدويًا.";
           continue;
         }
-        if (el) el.value = x.value;
+        const key = invoiceFileKey(input.name, file);
+        let cached = f.invoiceUploads.get(key);
+        if (!cached || cached.cid !== cid) {
+          const fd = new FormData();
+          fd.set("file", file);
+          fd.set(
+            "purpose",
+            input.name === "receiptFiles" ? "receipt" : "invoice",
+          );
+          fd.set("resource", "expenses");
+          fd.set("project", c.project_id);
+          fd.set("committee", c.id);
+          if (f.dataset.expenseId) {
+            fd.set("entity", f.dataset.expenseId);
+            fd.set("attach_later", "true");
+          }
+          const up = await fetch("/api/upload", { method: "POST", body: fd }),
+            u = await up.json();
+          if (!up.ok) throw new Error(u.error);
+          if (!current()) return;
+          cached = { id: u.id, key, cid, input: input.name };
+          f.invoiceUploads.set(key, cached);
+        }
+        const d = await api("extract", { file_id: cached.id });
+        if (!current()) return;
+        const labels = {
+          number: "رقم الفاتورة",
+          date: "التاريخ",
+          amount: "الإجمالي",
+          tax: "الضريبة",
+          description: "وصف المصروف",
+          supplier_name: "اسم المورد",
+        };
+        out.innerHTML =
+          `<strong>قراءة ${esc(file.name)} · عُبئت الحقول الفارغة فقط؛ راجعها قبل الإرسال</strong>` +
+          Object.entries(d.fields)
+            .map(
+              ([k, x]) =>
+                `<div class="extraction-row"><span>${labels[k]}</span><b>${x.value === null ? "يحتاج إدخالًا يدويًا" : esc(x.value)}</b><small>${x.confidence === "clear" ? "مقروء" : "غير مؤكد"}</small></div>`,
+            )
+            .join("");
+        for (const [k, x] of Object.entries(d.fields)) {
+          if (x.value === null || x.confidence !== "clear") continue;
+          const name = k === "description" ? "title" : k;
+          const el = f.elements.namedItem(name);
+          if (k === "supplier_name") {
+            const matches = S.suppliers.filter(
+              (s) => s.name.trim() === x.value.trim(),
+            );
+            if (matches.length === 1 && mayFill("supplier_id")) {
+              f.elements.namedItem("supplier_id").value = matches[0].id;
+              f.invoiceFilled.add("supplier_id");
+            }
+            continue;
+          }
+          if (el && mayFill(name)) {
+            el.value = x.value;
+            f.invoiceFilled.add(name);
+          }
+        }
       }
     } catch (e) {
-      out.textContent =
-        e.message + " يمكنك إدخال البيانات يدويًا؛ مرفقك محفوظ للمراجعة.";
+      if (current())
+        out.textContent =
+          e.message +
+          " يمكنك إدخال البيانات يدويًا والمحاولة مجددًا قبل الحفظ.";
     } finally {
-      button.disabled = false;
+      if (current()) {
+        f.invoiceReading = false;
+        button.disabled = false;
+        out.setAttribute("aria-busy", "false");
+      }
     }
   }
   function showJoinState(account) {

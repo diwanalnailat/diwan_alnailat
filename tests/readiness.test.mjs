@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import worker from "../worker.js";
 import {
+  scopedProvider,
   fixture,
   state,
   owner,
@@ -52,7 +53,7 @@ test("Sanad retrieves beyond its initial sample, rejects inaccessible records an
     Object.assign(a.env, ai);
     const id = await saveTask(a);
     let calls = 0;
-    a.env.PROVIDER_FETCH = async (url, init) => {
+    a.env.PROVIDER_FETCH = scopedProvider(async (url, init) => {
       const b = JSON.parse(init.body);
       calls++;
       assert.equal(b.store, false);
@@ -62,7 +63,7 @@ test("Sanad retrieves beyond its initial sample, rejects inaccessible records an
       assert.equal(got.id, id);
       assert.equal(got.description, "تفاصيل التنفيذ");
       return answer();
-    };
+    });
     assert.equal(
       (
         await a.req(
@@ -73,19 +74,19 @@ test("Sanad retrieves beyond its initial sample, rejects inaccessible records an
       ).status,
       200,
     );
-    a.env.PROVIDER_FETCH = async (url, init) => {
+    a.env.PROVIDER_FETCH = scopedProvider(async (url, init) => {
       const b = JSON.parse(init.body);
       if (b.input.at(-1).role === "user")
         return tool("read_record", { resource: "tasks", id: "not-visible" });
       assert.ok(JSON.parse(b.input.at(-1).output).error);
       return answer("السجل غير متاح");
-    };
+    });
     assert.equal(
       (await a.req("agent/ask", { message: "اقرأ سجلًا مخفيًا" }, a.member))
         .status,
       200,
     );
-    a.env.PROVIDER_FETCH = async (url, init) => {
+    a.env.PROVIDER_FETCH = scopedProvider(async (url, init) => {
       const b = JSON.parse(init.body);
       if (b.input.at(-1).role === "user")
         return tool("prepare_record", {
@@ -94,7 +95,7 @@ test("Sanad retrieves beyond its initial sample, rejects inaccessible records an
         });
       assert.ok(JSON.parse(b.input.at(-1).output).error);
       return answer("حدد اللجنة المتاحة");
-    };
+    });
     const draft = await a.req("agent/ask", { message: "جهز مهمة" });
     assert.equal(draft.status, 200);
     assert.deepEqual(draft.data.proposal, {});
@@ -116,7 +117,7 @@ test("Sanad retrieves beyond its initial sample, rejects inaccessible records an
           ),
         )
         .run();
-    a.env.PROVIDER_FETCH = async (url, init) => {
+    a.env.PROVIDER_FETCH = scopedProvider(async (url, init) => {
       const b = JSON.parse(init.body);
       if (b.input.at(-1).role === "user")
         return tool("search_records", {
@@ -128,7 +129,7 @@ test("Sanad retrieves beyond its initial sample, rejects inaccessible records an
       assert.equal(found.total, 65);
       assert.equal(found.records.length, 5);
       return answer();
-    };
+    });
     assert.equal(
       (await a.req("agent/ask", { message: "ابحث في كل المهام" }, a.member))
         .status,
@@ -144,7 +145,9 @@ test("Sanad drops memory after reassignment, isolates contexts, and checks revok
   try {
     Object.assign(a.env, ai);
     const id = await saveTask(a);
-    a.env.PROVIDER_FETCH = async () => answer("تفاصيل خاصة بالمهمة");
+    a.env.PROVIDER_FETCH = scopedProvider(async () =>
+      answer("تفاصيل خاصة بالمهمة"),
+    );
     assert.equal(
       (
         await a.req(
@@ -159,14 +162,14 @@ test("Sanad drops memory after reassignment, isolates contexts, and checks revok
       (await a.req("agent/history", undefined, a.member)).data.turns.length,
       1,
     );
-    a.env.PROVIDER_FETCH = async (url, init) => {
+    a.env.PROVIDER_FETCH = scopedProvider(async (url, init) => {
       assert.ok(
         !JSON.parse(init.body).input.some(
           (t) => t.content === "private-context",
         ),
       );
       return answer();
-    };
+    });
     assert.equal(
       (await a.req("agent/ask", { message: "سؤال عام" }, a.member)).status,
       200,
@@ -178,12 +181,12 @@ test("Sanad drops memory after reassignment, isolates contexts, and checks revok
       (await a.req("agent/history", undefined, a.member)).data.turns.length,
       0,
     );
-    a.env.PROVIDER_FETCH = async () => {
+    a.env.PROVIDER_FETCH = scopedProvider(async () => {
       await a.DB.prepare("UPDATE nl_members SET status='suspended' WHERE id=?")
         .bind(a.member.memberId)
         .run();
       return answer("لا يجب أن تُرجع هذه الإجابة بعد الإيقاف");
-    };
+    });
     const r = await a.req(
       "agent/ask",
       { message: "تغيير أثناء الطلب" },
@@ -209,7 +212,7 @@ test("Sanad customization is validated, personal deletion is isolated, and reten
   const a = await fixture();
   try {
     Object.assign(a.env, ai);
-    a.env.PROVIDER_FETCH = async () => answer();
+    a.env.PROVIDER_FETCH = scopedProvider(async () => answer());
     await a.req("agent/ask", { message: "owner" });
     await a.req("agent/ask", { message: "member" }, a.member);
     assert.equal(

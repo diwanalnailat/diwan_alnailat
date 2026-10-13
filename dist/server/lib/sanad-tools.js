@@ -48,15 +48,8 @@ export function agentRecord(resource, r) {
   if (resource === "expenses")
     return {
       ...base,
-      ...pick(r, [
-        "amount",
-        "tax",
-        "paid",
-        "amount_hidden",
-        "category",
-        "date",
-        "supplier_id",
-      ]),
+      ...(!r.amount_hidden ? pick(r, ["amount", "tax", "paid"]) : {}),
+      ...pick(r, ["amount_hidden", "category", "date", "supplier_id"]),
       meta: pick(r.meta || {}, [
         "committee_id",
         "budget_line_id",
@@ -99,7 +92,16 @@ export function agentRecord(resource, r) {
       ...base,
       manager_id: r.manager_id,
     };
-  return { ...base, description: r.description, season: r.season };
+  return {
+    ...base,
+    description: r.description,
+    season: r.season,
+    ...(resource === "projects"
+      ? r.budget === undefined
+        ? { budget_hidden: true }
+        : { budget: r.budget }
+      : {}),
+  };
 }
 export function scopedRecords(st, resource, context) {
   const task = st.tasks.find((t) => t.id === context.task_id);

@@ -10,6 +10,25 @@ afterEach(async () => {
 });
 const origin = "https://diwan.test";
 export const owner = { id: "site-owner", email: "owner@example.test" };
+// Preserve business-provider assertions while allowing the independent scope gate.
+// Scope-gate behavior itself is covered without this helper in sanad-scope.test.mjs.
+export function scopedProvider(handler) {
+  return async (url, init) => {
+    const body = JSON.parse(init.body);
+    if (body.text?.format?.name === "sanad_scope")
+      return Response.json({
+        status: "completed",
+        output: [
+          {
+            type: "message",
+            content: [{ type: "output_text", text: '{"decision":"allow"}' }],
+          },
+        ],
+        usage: { total_tokens: 3 },
+      });
+    return handler(url, init);
+  };
+}
 export const full = [
   { resource: "*", action: "*", scope: "all", effect: "allow" },
 ];

@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import worker, { dispatchNotifications } from "../worker.js";
 import {
+  scopedProvider,
   fixture,
   state,
   addMember,
@@ -115,7 +116,7 @@ test("Sanad uses scoped server data, returns editable drafts, persists privately
     Object.assign(a.env, aiEnv);
     const task = await saveTask(a);
     let calls = 0;
-    a.env.PROVIDER_FETCH = async (url, init) => {
+    a.env.PROVIDER_FETCH = scopedProvider(async (url, init) => {
       assert.equal(url, "https://api.openai.com/v1/responses");
       const body = JSON.parse(init.body);
       assert.equal(body.store, false);
@@ -142,7 +143,7 @@ test("Sanad uses scoped server data, returns editable drafts, persists privately
         );
       assert.equal(body.input.at(-1).type, "function_call_output");
       return answer("جهزت مسودة المورد لتراجعها.");
-    };
+    });
     const r = await a.req("agent/ask", {
       message: "أضف مورد خيام",
       context: { project_id: a.pid },
