@@ -550,8 +550,8 @@
         (!taskFilter.assignee || t.assignee_id === taskFilter.assignee),
     );
   }
-  function table(headers, rows) {
-    return `<div class="table-wrap"><table class="data-table"><thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows.join("")}</tbody></table></div>`;
+  function table(headers, rows, label = "") {
+    return `<div class="table-wrap"${label ? ` tabindex="0" role="region" aria-label="${esc(label)}"` : ""}><table class="data-table"><thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows.join("")}</tbody></table></div>`;
   }
   function taskRows(tasks, short = false) {
     return table(
@@ -1620,6 +1620,7 @@
                 (a) =>
                   `<tr><td>${esc(a.action)}</td><td>${esc(labels[a.resource] || a.resource)}</td><td>${esc(person(a.actor))}</td><td>${new Date(a.created).toLocaleString("ar-SA-u-ca-gregory-nu-latn")}</td></tr>`,
               ),
+              "سجل العمليات — جدول قابل للتمرير",
             )
           : empty(
               "السجل يبدأ مع أول إجراء",
@@ -3348,7 +3349,7 @@
             e.meta.payment_method || "transfer",
           ),
         )}${field("مرجع الدفع — إن وجد", input("payment_reference", e.meta.payment_reference || ""))}<div class="notice full" data-source-note></div>`,
-      )}${part("3", "الإثبات والاعتماد", "يقرأ سند PDF والصور والنصوص تلقائيًا ويعبئ الحقول الفارغة. راجعها قبل الإرسال؛ المستندات الأخرى تُرفق مع إدخال بياناتها يدويًا.", `<div class="upload-grid full">${typedUpload("invoiceFiles", "الفاتورة", "invoice", ".pdf,.txt,.docx,.xlsx,image/*")}${typedUpload("receiptFiles", "إيصال الدفع أو إثباته", "receipt", ".pdf,.txt,.docx,.xlsx,image/*")}</div><label class="button button-ghost full">${icon("calendar")} تصوير الفاتورة بالكاميرا<input type="file" name="cameraInvoice" accept="image/*" capture="environment" class="camera-input"></label>${e.id ? `<div class="full">${fileList(S.files.filter((f) => f.entity_type === "expenses" && f.entity_id === e.id))}</div>` : ""}<button type="button" class="button full" data-action="invoice-analyze">إعادة قراءة المستند مع سَنَد</button><div id="extractionResult" class="notice full" role="status" aria-live="polite" hidden></div>${field("ملاحظات توضح المصروف", textarea("notes", e.meta.notes || "", 2), true)}<div class="approval-route full" data-approval-preview></div><input type="hidden" name="claimant_id" value="${claimant}"><input type="hidden" name="status" value="pending">`)}${actions("إرسال للاعتماد الأول", '<button type="submit" value="draft" class="button button-ghost">حفظ مسودة</button>')}</form>`,
+      )}${part("3", "الإثبات والاعتماد", "يقرأ سند PDF والصور والنصوص وWord وExcel تلقائيًا ويعبئ الحقول الفارغة. راجع البيانات قبل الإرسال. للمستندات المصوّرة داخل Word أو Excel، استخدم نسخة PDF.", `<div class="upload-grid full">${typedUpload("invoiceFiles", "الفاتورة", "invoice", ".pdf,.txt,.docx,.xlsx,image/*")}${typedUpload("receiptFiles", "إيصال الدفع أو إثباته", "receipt", ".pdf,.txt,.docx,.xlsx,image/*")}</div><label class="button button-ghost full">${icon("calendar")} تصوير الفاتورة بالكاميرا<input type="file" name="cameraInvoice" accept="image/*" capture="environment" class="camera-input"></label>${e.id ? `<div class="full">${fileList(S.files.filter((f) => f.entity_type === "expenses" && f.entity_id === e.id))}</div>` : ""}<button type="button" class="button full" data-action="invoice-analyze">إعادة قراءة المستند مع سَنَد</button><div id="extractionResult" class="notice full" role="status" aria-live="polite" hidden></div>${field("ملاحظات توضح المصروف", textarea("notes", e.meta.notes || "", 2), true)}<div class="approval-route full" data-approval-preview></div><input type="hidden" name="claimant_id" value="${claimant}"><input type="hidden" name="status" value="pending">`)}${actions("إرسال للاعتماد الأول", '<button type="submit" value="draft" class="button button-ghost">حفظ مسودة</button>')}</form>`,
       async (fd, f, button) => {
         if (f.invoiceReading)
           throw Error("انتظر اكتمال قراءة المستند ثم راجع البيانات قبل الحفظ.");
@@ -4521,7 +4522,7 @@
             ].map((x) => [x, x]),
             a.category || "دروع وتذكارات التكريم",
           ),
-        )}${field("تفصيل التصنيف — اختياري", input("category_detail", m.category_detail || "", "text", 'maxlength="200" placeholder="مثال: درع تكريم ضيف أو وشاح فريق التنظيم"'))}<div data-unit-count>${field("عدد القطع الجديدة *", input("count", 1, "number", 'min="1" max="50" step="1"'))}</div><div data-stock-count>${field("كمية الصنف *", input("quantity", a.quantity, "number", 'required min="1" max="1000000" step="1"'))}</div><div class="notice full" data-tracking-note></div>${field("رقم الأصل الدائم", input("serial", a.serial || "", "text", 'readonly dir="ltr" placeholder="يتولد تلقائيًا بعد الحفظ"') + "<small>لا يتكرر ولا يتغير عند التعديل أو إعادة طباعة الملصق.</small>")}${field("رقم الشركة المصنعة — إن وجد", input("manufacturer_serial", m.manufacturer_serial || "", "text", 'maxlength="150" dir="ltr"') + '<button type="button" class="text-link" data-fill-barcode>قراءة رقم الشركة المصنعة</button>')}${field("العلامة التجارية", input("brand", m.brand || ""))}${field("نهاية الضمان", input("warranty_end", m.warranty_end || "", "date"))}${field("الطراز / الوصف المختصر", input("model", m.model || ""))}${field("المقاس / الأبعاد", input("dimensions", m.dimensions || ""))}${field(
+        )}${field("تفصيل التصنيف — اختياري", input("category_detail", m.category_detail || "", "text", 'maxlength="200" placeholder="مثال: درع تكريم ضيف أو وشاح فريق التنظيم"'))}<div data-unit-count>${field("عدد القطع الجديدة *", input("count", 1, "number", 'min="1" max="50" step="1"'))}</div><div data-stock-count>${field("كمية الصنف *", input("quantity", a.quantity, "number", 'required min="1" max="1000000" step="1"'))}</div><div class="notice full" data-tracking-note></div>${field("رقم الأصل الدائم", input("serial", a.serial || "", "text", 'readonly dir="ltr" placeholder="يتولد تلقائيًا بعد الحفظ"') + "<small>لا يتكرر ولا يتغير عند التعديل أو إعادة طباعة الملصق.</small>")}${field("رقم الشركة المصنعة — إن وجد", input("manufacturer_serial", m.manufacturer_serial || "", "text", 'maxlength="150" dir="ltr" aria-label="رقم الشركة المصنعة — إن وجد"') + '<button type="button" class="text-link" data-fill-barcode>قراءة رقم الشركة المصنعة</button>')}${field("العلامة التجارية", input("brand", m.brand || ""))}${field("نهاية الضمان", input("warranty_end", m.warranty_end || "", "date"))}${field("الطراز / الوصف المختصر", input("model", m.model || ""))}${field("المقاس / الأبعاد", input("dimensions", m.dimensions || ""))}${field(
           "الحالة",
           select(
             "condition",
@@ -5685,6 +5686,8 @@
         if (
           ![
             "application/pdf",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             "image/png",
             "image/jpeg",
             "image/webp",
@@ -5692,7 +5695,7 @@
           ].includes(file.type)
         ) {
           out.textContent =
-            "القراءة التلقائية تدعم PDF وPNG وJPEG وWebP والنصوص. أدخل بيانات هذا النوع يدويًا.";
+            "القراءة التلقائية تدعم PDF وPNG وJPEG وWebP وTXT وDOCX وXLSX. أدخل بيانات هذا النوع يدويًا.";
           continue;
         }
         const key = invoiceFileKey(input.name, file);

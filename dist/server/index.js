@@ -51,7 +51,7 @@ import {
   reviewJoin,
 } from "./lib/join-requests.js";
 import { ASSET_CATEGORIES, ASSET_BATCH_LIMIT } from "./lib/assets.js";
-import { jsonBody, formBody, httpsOrigin } from "./lib/security.js";
+import { jsonBody, formBody, httpsOrigin, boundedBody } from "./lib/security.js";
 import {
   heritageResults,
   saveHeritageResults,
@@ -1227,6 +1227,13 @@ async function handle(req, env) {
     if (!integrationStatus(env).voice)
       fail("فعّل خدمة الصوت في إعدادات سَنَد أولًا", 503);
     await limit(db, "voice:" + c.u.id, 20, 3600);
+    await limit(db, "ai:minute:" + c.u.id, 10, 60);
+    await limit(
+      db,
+      "ai:day:" + c.u.id,
+      Number(env.AI_DAILY_REQUEST_LIMIT) || 100,
+      86400,
+    );
     if (Number(req.headers.get("content-length")) > 12 * 1024 * 1024)
       fail("التسجيل كبير", 413);
     const form = await formBody(req),
@@ -1251,10 +1258,23 @@ async function handle(req, env) {
         body: send,
       },
     );
-    if (!result.ok) fail("تعذر تفريغ الصوت. يمكنك كتابة طلبك.", 502);
-    return json({
-      text: String((await result.json()).text || "").slice(0, 6000),
-    });
+    if (!result.ok) {
+      await result.body?.cancel().catch(() => {});
+      fail("تعذر تفريغ الصوت. يمكنك كتابة طلبك.", 502);
+    }
+    let transcript;
+    try {
+      transcript = JSON.parse(
+        new TextDecoder().decode(await boundedBody(result, 64 * 1024)),
+      );
+      if (typeof transcript?.text !== "string" || !transcript.text.trim())
+        throw new Error();
+    } catch {
+      fail("تعذرت قراءة التسجيل بوضوح. أعد التسجيل أو اكتب طلبك.", 502);
+    }
+    const fresh = await context(req, env);
+    fresh.need("assistant", "view");
+    return json({ text: transcript.text.trim().slice(0, 6000) });
   }
   if (p === "/api/legacy" && req.method === "GET") {
     c.need("settings", "manage");
@@ -4826,6 +4846,8 @@ async function handle(req, env) {
         "image/jpeg",
         "image/webp",
         "text/plain",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       ].includes(file.mime)
     )
       fail("صيغة غير مدعومة للتحليل");
@@ -4847,9 +4869,9 @@ async function handle(req, env) {
       file,
       file.mime === "text/plain"
         ? { type: "input_text", text: new TextDecoder().decode(bytes) }
-        : file.mime === "application/pdf"
-          ? { type: "input_file", filename: file.name, file_data: data }
-          : { type: "input_image", image_url: data },
+        : file.mime.startsWith("image/")
+          ? { type: "input_image", image_url: data }
+          : { type: "input_file", filename: file.name, file_data: data },
     );
     const fresh = await context(req, env);
     const currentFile = await one(

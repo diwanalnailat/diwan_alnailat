@@ -204,7 +204,7 @@ test("extraction supports bounded plain text and refuses unsupported attachments
       413,
     );
     await a.DB.prepare(
-      "UPDATE nl_files SET mime='application/vnd.openxmlformats-officedocument.wordprocessingml.document' WHERE id=?",
+      "UPDATE nl_files SET mime='application/msword' WHERE id=?",
     )
       .bind(file)
       .run();
@@ -229,6 +229,127 @@ test("extraction supports bounded plain text and refuses unsupported attachments
       400,
     );
     assert.equal(calls.length, 1);
+  } finally {
+    await a.DB.close();
+  }
+});
+
+test("Word and Excel financial documents use bounded file inputs without exposing workspace records", async () => {
+  const a = await fixture();
+  try {
+    const file = await draft(a),
+      calls = provider(a);
+    for (const [mime, name] of [
+      [
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "invoice.docx",
+      ],
+      [
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "invoice.xlsx",
+      ],
+    ]) {
+      await a.DB.prepare("UPDATE nl_files SET mime=?,name=? WHERE id=?")
+        .bind(mime, name, file)
+        .run();
+      const result = await a.req("extract", { file_id: file }, a.member);
+      assert.equal(result.status, 200, JSON.stringify(result.data));
+      const input = calls.at(-1).input[0].content[1];
+      assert.equal(input.type, "input_file");
+      assert.equal(input.filename, name);
+      assert.ok(input.file_data.startsWith(`data:${mime};base64,`));
+      assert.ok(!JSON.stringify(calls.at(-1)).includes(a.pid));
+    }
+    assert.equal(calls.length, 2);
+  } finally {
+    await a.DB.close();
+  }
+});
+
+test("extraction shares the AI minute quota and never sends requests past its limit", async () => {
+  const a = await fixture();
+  try {
+    const file = await draft(a),
+      calls = provider(a);
+    await a.DB.prepare(
+      "INSERT INTO nl_integration_limits(key,hits,expires) VALUES(?,?,?)",
+    )
+      .bind("ai:minute:" + a.member.memberId, 10, Date.now() + 60000)
+      .run();
+    assert.equal(
+      (await a.req("extract", { file_id: file }, a.member)).status,
+      429,
+    );
+    assert.equal(calls.length, 0);
+  } finally {
+    await a.DB.close();
+  }
+});
+
+test("extraction leaves contradictory tax for manual review instead of autofilling more tax than the total", async () => {
+  const a = await fixture();
+  try {
+    const file = await draft(a);
+    provider(a);
+    a.env.PROVIDER_FETCH = async () => {
+      const fields = invoice();
+      fields.tax.value = "150.00";
+      return Response.json({
+        status: "completed",
+        output: [
+          {
+            type: "message",
+            content: [{ type: "output_text", text: JSON.stringify(fields) }],
+          },
+        ],
+      });
+    };
+    const result = await a.req("extract", { file_id: file }, a.member);
+    assert.equal(result.status, 200, JSON.stringify(result.data));
+    assert.equal(result.data.fields.amount.value, "115.00");
+    assert.deepEqual(result.data.fields.tax, {
+      value: null,
+      confidence: "uncertain",
+    });
+    assert.equal(result.data.requires_review, true);
+  } finally {
+    await a.DB.close();
+  }
+});
+
+test("extraction normalizes source decimal separators and Arabic digits without multiplying the amount", async () => {
+  const a = await fixture();
+  try {
+    const file = await draft(a);
+    provider(a);
+    for (const [raw, expected] of [
+      ["٢٣٠٫٠٠", "230.00"],
+      ["۲۳۰٫۰۰", "230.00"],
+      ["١٬٢٣٠٫٥٠", "1230.50"],
+      ["1,230.50", "1230.50"],
+      ["230,00", "230.00"],
+      ["1,23,0.00", null],
+      ["230.000", null],
+    ]) {
+      a.env.PROVIDER_FETCH = async () => {
+        const fields = invoice();
+        fields.amount.value = raw;
+        fields.tax.value = "٠٫٠٠";
+        return Response.json({
+          status: "completed",
+          output: [
+            {
+              type: "message",
+              content: [{ type: "output_text", text: JSON.stringify(fields) }],
+            },
+          ],
+        });
+      };
+      const result = await a.req("extract", { file_id: file }, a.member);
+      assert.equal(result.status, 200, JSON.stringify(result.data));
+      assert.equal(result.data.fields.amount.value, expected, raw);
+      assert.equal(result.data.fields.tax.value, "0.00");
+    }
   } finally {
     await a.DB.close();
   }

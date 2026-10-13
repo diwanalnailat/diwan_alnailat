@@ -3,5 +3,6 @@
   "framework": "nextjs",
   "regions": ["syd1"],
   "buildCommand": "npm run build",
-  "outputDirectory": ".next"
+  "outputDirectory": ".next",
+  "crons": [{ "path": "/api/cron/maintenance", "schedule": "0 3 * * *" }]
 }

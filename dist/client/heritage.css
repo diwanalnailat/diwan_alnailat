@@ -357,6 +357,9 @@
   padding: 0 clamp(24px, 8vw, 160px) 110px;
   scroll-margin-top: 30px;
 }
+.nw-archive .nw-section-label {
+  color: #786547;
+}
 .nw-archive-head {
   display: flex;
   justify-content: space-between;
@@ -366,7 +369,7 @@
 }
 .nw-archive-head p {
   font-size: 15px;
-  color: #6f7466;
+  color: #616858;
   max-width: 280px;
   padding-bottom: 12px;
   line-height: 1.9;
@@ -387,7 +390,7 @@
   border: 0;
   border-bottom: 3px solid transparent;
   background: transparent;
-  color: #797c70;
+  color: #616858;
   white-space: nowrap;
 }
 .nw-year-tabs button[aria-selected="true"] {
@@ -423,13 +426,13 @@
 }
 .nw-season-note > span {
   font-size: 11px;
-  color: #867557;
+  color: #786547;
 }
 .nw-edition-number {
   font-size: 155px;
   line-height: 1.1;
   font-weight: 300;
-  color: #b5a588;
+  color: #947d58;
   letter-spacing: -8px;
   margin: 14px 0 22px;
 }
@@ -440,7 +443,7 @@
 }
 .nw-season-note p {
   font-size: 13px;
-  color: #777d6c;
+  color: #616858;
   margin-top: 10px;
   line-height: 1.85;
 }
@@ -492,15 +495,15 @@
 }
 .nw-result > time {
   font-size: 11px;
-  color: #8e897a;
+  color: #616858;
   white-space: nowrap;
 }
 .nw-result .nw-camel-name {
-  color: #8e7042;
+  color: #786547;
 }
 .nw-archive-note {
   font-size: 11px;
-  color: #8c8d7e;
+  color: #616858;
   border-top: 1px solid var(--hairline);
   margin-top: 35px;
   padding-top: 20px;
@@ -620,7 +623,10 @@
   border-top: 1px solid var(--hairline);
   background: #e9e1d2;
   font-size: 11px;
-  color: #717766;
+  color: #59614f;
+}
+.nailat-world .nw-footer-social > span {
+  opacity: 1;
 }
 .nw-footer img {
   width: 160px;
@@ -846,7 +852,7 @@
     font-size: 69px;
     letter-spacing: -4px;
     margin: 0;
-    color: #ad9671;
+    color: #947d58;
   }
   .nw-season-note h3 {
     font-size: 22px;

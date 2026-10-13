@@ -89,11 +89,11 @@ body {
   --surface: #fffefa;
   --panel: var(--surface);
   --text: #263c32;
-  --muted: #747b70;
+  --muted: #626b5f;
   --line: #e2e4d9;
   --border: var(--line);
   --sand: #c7b48f;
-  --gold: #9c7c48;
+  --gold: #806334;
   --soft: #efeee4;
   --brand: #203e33;
   margin: 0;
@@ -156,7 +156,8 @@ a:focus-visible,
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible,
-summary:focus-visible {
+summary:focus-visible,
+.table-wrap[tabindex]:focus-visible {
   outline: 3px solid #aa8650;
   outline-offset: 4px;
 }
@@ -1774,6 +1775,7 @@ a.focus-row:hover {
   font-size: 12px;
 }
 .pill {
+  color: #62675e;
   border-radius: 5px;
   font-size: 12px;
   padding: 4px 8px;
@@ -1786,7 +1788,7 @@ a.focus-row:hover {
 }
 .pill.amber {
   background: #f5eedb;
-  color: #967339;
+  color: #795b27;
 }
 .pill.red {
   background: #f7e9df;

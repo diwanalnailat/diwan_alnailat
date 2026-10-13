@@ -178,15 +178,24 @@ async function exerciseInvoiceForm(configured = true) {
       "false",
     );
     assert.equal(saves.length, 0, "reading never saves or submits an expense");
-    choose("second.pdf");
+    choose(
+      "second.docx",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    );
     await wait(() => reads.length === 2);
-    choose("third.pdf");
+    choose(
+      "third.xlsx",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
     await wait(() => reads.length === 3);
     reads[2].resolve(result("333.00"));
     await wait(() => !f.invoiceReading);
     reads[1].resolve(result("222.00"));
     await wait(() => !pending);
-    assert.match(f.querySelector("#extractionResult").textContent, /third.pdf/);
+    assert.match(
+      f.querySelector("#extractionResult").textContent,
+      /third.xlsx/,
+    );
     assert.ok(
       !f.querySelector("#extractionResult").textContent.includes("222.00"),
     );
