@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { fixture, saveTask, saveExpense, review, upload, state, owner, addMember } from "./support.mjs";
+import { completionApprovalStatement, taskApprovalList } from "../lib/task-approvals.js";
 
 const ok = (result) => assert.equal(result.status, 200, JSON.stringify(result.data));
 const row = (a, table, id) => a.DB.prepare(`SELECT * FROM ${table} WHERE id=?`).bind(id).first();
@@ -41,6 +42,111 @@ async function usingFixture(run) {
 for (const database of ["sqlite", "postgres"]) {
   test(`task administration workflow (${database})`, async (t) => {
     process.env.DIWAN_TEST_DATABASE = database;
+    await t.test("submitted execution appears before reviewer approval without creating an administrative record", () => usingFixture(async (a) => {
+      const id = await saveTask(a), submitted = await submit(a, id);
+      const auditsBefore = await a.DB.prepare("SELECT count(*) AS n FROM nl_audit").first();
+      const list = await a.req(`task-approvals?project=${a.pid}&committee=${a.cid}&status=awaiting_review`); ok(list);
+      assert.equal(list.data.rows.length, 1);
+      const entry = list.data.rows[0];
+      assert.equal(entry.task_id, id);
+      assert.equal(entry.stage, "review");
+      assert.equal(entry.status, "awaiting_review");
+      assert.equal(entry.awaiting_review, true);
+      assert.deepEqual(entry.actions, [], "execution review cannot masquerade as administrative approval");
+      assert.equal(entry.snapshot.title, submitted.title);
+      assert.equal(entry.snapshot.reviewer_id, a.manager.memberId);
+      assert.equal(entry.snapshot.reviewer_name, "manager");
+      assert.equal(entry.snapshot.completion_note, "Execution completed with all checklist evidence");
+      assert.ok(entry.snapshot.checklist.every((step) => step.done));
+      assert.equal((await approval(a, id)) ?? null, null);
+      assert.deepEqual(await row(a, "nl_tasks", id), submitted);
+      assert.deepEqual(await a.DB.prepare("SELECT count(*) AS n FROM nl_audit").first(), auditsBefore);
+      assert.equal((await a.req(`task-approvals/detail?id=${id}`)).status, 404);
+      assert.deepEqual((await a.req("task-approvals?status=pending")).data.rows, []);
+      assert.deepEqual((await a.req("task-approvals?project=unrelated")).data.rows, []);
+      assert.deepEqual((await a.req("task-approvals?committee=unrelated")).data.rows, []);
+
+      // Older tasks without an explicit reviewer still identify the committee manager.
+      const oldMeta = JSON.parse(submitted.meta); delete oldMeta.reviewer_id;
+      await a.DB.prepare("UPDATE nl_tasks SET meta=? WHERE id=?").bind(JSON.stringify(oldMeta), id).run();
+      const legacy = await a.req("task-approvals"); ok(legacy);
+      assert.equal(legacy.data.rows[0].snapshot.reviewer_id, a.manager.memberId);
+      assert.equal(legacy.data.rows[0].snapshot.reviewer_name, "manager");
+      await a.DB.prepare("UPDATE nl_tasks SET meta=? WHERE id=?").bind(submitted.meta, id).run();
+
+      ok(await a.req("tasks/transition", { id, version: submitted.version, status: "done", note: "Reviewed execution" }, a.manager));
+      const approved = await a.req("task-approvals"); ok(approved);
+      assert.equal(approved.data.rows.length, 1);
+      assert.equal(approved.data.rows[0].stage, "administration");
+      assert.equal(approved.data.rows[0].status, "pending");
+      assert.equal(approved.data.rows[0].awaiting_review, false);
+      assert.ok(approved.data.rows[0].actions.includes("approve"));
+      assert.deepEqual((await a.req("task-approvals?status=awaiting_review")).data.rows, []);
+    }));
+
+    await t.test("review queue applies both resource permissions, explicit denies, expiry, and selected reviewer identity", () => usingFixture(async (a) => {
+      await addReviewerMembership(a);
+      const id = await saveTask(a, { meta: { reviewer_id: a.outsider.memberId } });
+      await submit(a, id);
+      const observer = await addMember(a, "review-queue-observer", []);
+      const visible = [grant("tasks", "view"), grant("task_approvals", "view")];
+      await setGrants(a, observer, visible);
+      let list = await a.req("task-approvals", undefined, observer); ok(list);
+      assert.equal(list.data.rows[0].snapshot.reviewer_name, "outsider");
+      for (const resource of ["tasks", "task_approvals"]) {
+        await setGrants(a, observer, [...visible, grant(resource, "view", "deny", { scope: "project", projectId: a.pid })]);
+        list = await a.req("task-approvals", undefined, observer); ok(list);
+        assert.deepEqual(list.data.rows, [], `${resource} record denial must hide pending review`);
+        await setGrants(a, observer, [
+          grant(resource, "view", "allow", { expires: "2000-01-01T00:00:00.000Z" }),
+          grant(resource, "view", "allow", { scope: "project", projectId: "unrelated-project" }),
+          grant(resource === "tasks" ? "task_approvals" : "tasks", "view"),
+        ]);
+        list = await a.req("task-approvals", undefined, observer); ok(list);
+        assert.deepEqual(list.data.rows, [], `${resource} expired grant cannot reveal pending review`);
+      }
+      assert.equal((await approval(a, id)) ?? null, null);
+    }));
+
+    await t.test("mixed review and administrative queue uses bounded keyset pages and preserves filtering", () => usingFixture(async (a) => {
+      const seed = await saveTask(a), task = await row(a, "nl_tasks", seed);
+      const committee = await row(a, "nl_committees", a.cid);
+      const statements = [];
+      for (let i = 0; i < 55; i++) {
+        const id = `queue-${String(i).padStart(3, "0")}`;
+        statements.push(a.DB.prepare("INSERT INTO nl_tasks(id,project_id,title,description,assignee_id,status,meta,created_by,created,updated) VALUES(?,?,?,?,?,'review',?,?,?,?)")
+          .bind(id, a.pid, `Queue task ${i}`, task.description, task.assignee_id, task.meta, task.created_by, task.created, task.updated));
+        if (i % 2) statements.push(completionApprovalStatement(a.DB, { ...task, id }, committee, { id: a.manager.memberId, name: "manager" }, "Earlier acceptance", task.updated));
+      }
+      await a.DB.batch(statements);
+      const reads = [];
+      const db = { prepare(sql) {
+        return { bind(...args) {
+          const statement = a.DB.prepare(sql).bind(...args);
+          return { async all() {
+            const result = await statement.all(); reads.push({ sql, args, count: result.results.length }); return result;
+          } };
+        } };
+      } };
+      const c = { can: () => true, committees: [committee] };
+      const first = await taskApprovalList(db, c, new URLSearchParams());
+      assert.equal(first.rows.length, 50);
+      assert.equal(first.next_cursor, "queue-049");
+      assert.equal(reads[0].count, 51);
+      assert.ok(reads.slice(1).every((read) => read.count <= 50 && read.args.length <= 50));
+      const namesRead = reads.find((read) => read.sql.includes("FROM nl_members"));
+      assert.deepEqual(namesRead.args, [a.manager.memberId]);
+      const second = await taskApprovalList(db, c, new URLSearchParams({ cursor: first.next_cursor }));
+      assert.equal(second.rows.length, 5); assert.equal(second.next_cursor, null);
+      assert.equal(new Set([...first.rows, ...second.rows].map((item) => item.task_id)).size, 55);
+      const pending = await a.req("task-approvals?status=pending"); ok(pending);
+      assert.equal(pending.data.rows.length, 27);
+      assert.ok(pending.data.rows.every((item) => item.stage === "administration" && item.awaiting_review));
+      const reviewPage = await a.req(`task-approvals?status=awaiting_review&cursor=queue-049&project=${a.pid}&committee=${a.cid}`); ok(reviewPage);
+      assert.deepEqual(reviewPage.data.rows.map((item) => item.task_id), second.rows.map((item) => item.task_id));
+      assert.equal((await a.req("task-approvals?status=invalid")).status, 400);
+    }));
+
     await t.test("selected reviewer replaces the default, has record access without edit, and explicit denial wins", () => usingFixture(async (a) => {
       const defaultId = await saveTask(a);
       assert.equal(JSON.parse((await row(a, "nl_tasks", defaultId)).meta).reviewer_id, a.manager.memberId);
@@ -146,6 +252,14 @@ for (const database of ["sqlite", "postgres"]) {
       task = await row(a, "nl_tasks", id);
       ok(await a.req("tasks/transition", { id, version: task.version, status: "review", note: "Additional execution completed" }, a.member));
       task = await row(a, "nl_tasks", id);
+      const resubmitted = await a.req("task-approvals?status=awaiting_review"); ok(resubmitted);
+      assert.equal(resubmitted.data.rows.length, 1, "resubmission must not duplicate the existing administrative record");
+      assert.equal(resubmitted.data.rows[0].stage, "administration");
+      assert.equal(resubmitted.data.rows[0].status, "approved");
+      assert.equal(resubmitted.data.rows[0].awaiting_review, true);
+      assert.equal(resubmitted.data.rows[0].payment_hold, 1);
+      assert.ok(resubmitted.data.rows[0].actions.includes("resume_payment"));
+      assert.deepEqual(await approval(a, id), previous, "listing cannot reset administrative decisions or payment holds");
       ok(await a.req("tasks/transition", { id, version: task.version, status: "done", note: "Second completion reviewed" }, a.manager));
       const current = await approval(a, id);
       assert.equal(current.status, "pending"); assert.equal(current.payment_hold, 1);

@@ -8,6 +8,10 @@ import { fixture, owner, saveTask } from "./support.mjs";
 
 test("administrative approvals load on entry, show completion evidence and save a separate audited decision", async () => {
   const a = await fixture();
+  const reviewId = await saveTask(a, { title: "Pending <script>bad()</script>" });
+  await a.DB.prepare("UPDATE nl_tasks SET status='review' WHERE id=?")
+    .bind(reviewId)
+    .run();
   const id = await saveTask(a, { title: "Review <script>bad()</script>" });
   await a.DB.prepare("UPDATE nl_tasks SET status='done' WHERE id=?")
     .bind(id)
@@ -107,6 +111,25 @@ test("administrative approvals load on entry, show completion evidence and save 
     await wait(() => d.querySelector(".approval-card") && !pending);
     assert.equal(reads, 1);
     assert.equal(d.querySelector(".approval-card script"), null);
+    const reviewCard = d.querySelector(`.approval-card [data-action="task"][data-id="${reviewId}"]`)?.closest(".approval-card");
+    assert.ok(reviewCard, "submitted task is visible before completion approval exists");
+    assert.match(reviewCard.textContent, /بانتظار اعتماد مراجع الإنجاز/);
+    assert.match(reviewCard.textContent, /manager/);
+    assert.doesNotMatch(reviewCard.textContent, /اعتمد الإنجاز:/);
+    assert.equal(reviewCard.querySelector('[data-action="approval-open"]'), null);
+    click(`.approval-card [data-action="task"][data-id="${reviewId}"]`);
+    await wait(() => d.querySelector("#detail").open && !pending);
+    assert.match(d.querySelector("#detailBody").textContent, /Pending/);
+    assert.equal(d.querySelector('#detailBody [data-next="done"]'), null, "administrator does not impersonate designated reviewer");
+    d.querySelector("#detail").close();
+    const statusFilter = d.querySelector('[name="approval_status"]');
+    statusFilter.value = "awaiting_review";
+    statusFilter.dispatchEvent(new w.Event("change", { bubbles: true }));
+    await wait(() => !pending && d.querySelectorAll(".approval-card").length === 1);
+    assert.ok(d.querySelector(`.approval-card [data-id="${reviewId}"]`));
+    statusFilter.value = "";
+    statusFilter.dispatchEvent(new w.Event("change", { bubbles: true }));
+    await wait(() => !pending && d.querySelectorAll(".approval-card").length === 2);
     click('[data-action="approval-open"]');
     await wait(() => d.querySelector(".approval-detail") && !pending);
     assert.match(

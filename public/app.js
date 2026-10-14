@@ -1924,6 +1924,7 @@
     toast,
   });
   const approvalStatuses = {
+    awaiting_review: "بانتظار اعتماد مراجع الإنجاز",
     pending: "بانتظار مراجعة الإدارة",
     approved: "معتمد إداريًا",
     on_hold: "الاعتماد معلّق",
@@ -1957,6 +1958,11 @@
     approvalPrevious = [];
     return `${heading("اعتمادات المهام", "مراجعة الإنجاز والتكلفة وإجراءات الإدارة والمالية", btn("تحديث", "approval-refresh", "", "button-ghost", "check"))}<section class="panel"><div class="toolbar">${projectSelect()}${committeeSelect()}<label class="field"><span>حالة الاعتماد</span>${select("approval_status", [["", "كل الحالات"], ...Object.entries(approvalStatuses)], approvalStatus)}</label></div><div id="taskApprovals" aria-live="polite"></div></section>`;
   }
+  function taskApprovalCard(r) {
+    const reviewing = r.stage === "review",
+      waiting = reviewing || r.awaiting_review;
+    return `<article class="approval-card"><div><p class="muted">${esc(projectName(r.project_id))} / ${esc(committeeName(r.committee_id))}</p><h2>${esc(r.snapshot.title)}</h2><div class="approval-badges"><span class="pill">${esc(approvalStatuses[r.status])}</span>${waiting && !reviewing ? `<span class="pill">${esc(approvalStatuses.awaiting_review)}</span>` : ""}${r.payment_hold ? '<span class="pill red">الصرف موقوف</span>' : ""}</div>${reviewing ? `<p class="muted">مراجع الإنجاز: ${esc(r.snapshot.reviewer_name || "غير محدد")}</p><p class="muted">رفع المنفذ الإنجاز للمراجعة. بعد اعتماد المراجع تظهر إجراءات الإدارة والمالية.</p>` : `<p class="muted">اعتمد الإنجاز${waiting ? " سابقًا" : ""}: ${esc(r.snapshot.reviewer_name || "—")} · ${esc(stamp(r.snapshot.approved_at))}</p>${waiting ? '<p class="muted">المهمة مرفوعة مجددًا لمراجع الإنجاز؛ إجراءات الاعتماد السابق محفوظة.</p>' : ""}`}</div><div class="approval-card-actions">${waiting ? btn("فتح المهمة ومراجعة الإنجاز", "task", r.task_id, "button-ghost", "check") : ""}${!reviewing ? btn("عرض التفاصيل والإجراءات", "approval-open", r.task_id, "button-ghost", "arrow") : ""}</div></article>`;
+  }
   async function loadTaskApprovals() {
     const target = $("#taskApprovals"),
       request = ++approvalRequest;
@@ -1980,8 +1986,8 @@
       approvalNext = data.next_cursor;
       target.innerHTML =
         (data.rows.length
-          ? `<div class="approval-list">${data.rows.map((r) => `<article class="approval-card"><div><p class="muted">${esc(projectName(r.project_id))} / ${esc(committeeName(r.committee_id))}</p><h2>${esc(r.snapshot.title)}</h2><div class="approval-badges"><span class="pill">${esc(approvalStatuses[r.status])}</span>${r.payment_hold ? '<span class="pill red">الصرف موقوف</span>' : ""}</div><p class="muted">اعتمد الإنجاز: ${esc(r.snapshot.reviewer_name || "—")} · ${esc(stamp(r.snapshot.approved_at))}</p></div>${btn("عرض التفاصيل والإجراءات", "approval-open", r.task_id, "button-ghost", "arrow")}</article>`).join("")}</div>`
-          : '<div class="empty"><h3>لا توجد اعتمادات في هذه الصفحة</h3><p>تظهر المهام هنا بعد اعتماد مراجع الإنجاز. يمكنك تغيير التصفية أو الانتقال للصفحة التالية إن وجدت.</p></div>') +
+          ? `<div class="approval-list">${data.rows.map(taskApprovalCard).join("")}</div>`
+          : '<div class="empty"><h3>لا توجد مهام مطابقة في هذه الصفحة</h3><p>تظهر هنا المهام المرفوعة لمراجع الإنجاز والاعتمادات المحالة للإدارة. يمكنك تغيير التصفية أو الانتقال للصفحة التالية إن وجدت.</p></div>') +
         `<div class="approval-pagination">${approvalPrevious.length ? btn("السابق", "approval-prev", "", "button-ghost", "arrow") : ""}${approvalNext ? btn("التالي", "approval-next", "", "button-ghost", "arrow") : ""}</div>`;
     } catch (error) {
       if (request === approvalRequest && target.isConnected)

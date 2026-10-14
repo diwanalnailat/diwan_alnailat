@@ -6332,8 +6332,15 @@ body {
   margin: 8px 0;
   overflow-wrap: anywhere;
 }
-.approval-card > .button {
+.approval-card-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   flex-shrink: 0;
+  max-width: 100%;
+}
+.approval-card-actions > .button {
+  white-space: normal;
 }
 .approval-badges,
 .approval-pagination {
@@ -6377,7 +6384,7 @@ body {
     gap: 12px;
     padding: 20px 0;
   }
-  .approval-card > .button {
+  .approval-card-actions > .button {
     width: 100%;
     min-height: 44px;
   }

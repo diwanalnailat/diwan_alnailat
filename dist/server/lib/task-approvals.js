@@ -77,27 +77,36 @@ export async function taskApprovalList(db, c, params) {
     }
   }
   if (params.get("status")) {
-    filters.push("status=?");
-    args.push(
-      choice(params.get("status"), [
-        "pending",
-        "approved",
-        "on_hold",
-        "finance",
-        "clarification",
-      ]),
+    const status = choice(params.get("status"), [
+      "awaiting_review",
+      "pending",
+      "approved",
+      "on_hold",
+      "finance",
+      "clarification",
+    ]);
+    filters.push(
+      status === "awaiting_review" ? "awaiting_review=1" : "status=?",
     );
+    if (status !== "awaiting_review") args.push(status);
   }
   // Bounded scanning and keyset pagination; permission filtering remains authoritative.
   const { results } = await db
     .prepare(
-      `SELECT * FROM nl_task_approvals ${filters.length ? "WHERE " + filters.join(" AND ") : ""} ORDER BY task_id LIMIT 51`,
+      `SELECT * FROM (
+        SELECT a.task_id,a.project_id,a.committee_id,a.status,'administration' AS stage,
+          CASE WHEN t.status='review' THEN 1 ELSE 0 END AS awaiting_review
+        FROM nl_task_approvals a JOIN nl_tasks t ON t.id=a.task_id
+        UNION ALL
+        SELECT t.id AS task_id,t.project_id,json_extract(meta,'$.committee_id') AS committee_id,
+          'awaiting_review' AS status,'review' AS stage,1 AS awaiting_review
+        FROM nl_tasks t WHERE t.status='review'
+          AND NOT EXISTS (SELECT 1 FROM nl_task_approvals a WHERE a.task_id=t.id)
+      ) queue ${filters.length ? "WHERE " + filters.join(" AND ") : ""} ORDER BY task_id LIMIT 51`,
     )
     .bind(...args)
     .all();
-  const candidates = results
-    .slice(0, 50)
-    .filter((row) => c.can("task_approvals", "view", scope(row)));
+  const candidates = results.slice(0, 50);
   const tasks = candidates.length
     ? (
         await db
@@ -109,17 +118,92 @@ export async function taskApprovalList(db, c, params) {
       ).results
     : [];
   const taskById = new Map(tasks.map((task) => [task.id, task]));
+  const administrativeIds = candidates
+    .filter((row) => row.stage === "administration")
+    .map((row) => row.task_id);
+  const approvals = administrativeIds.length
+    ? (
+        await db
+          .prepare(
+            `SELECT * FROM nl_task_approvals WHERE task_id IN (${administrativeIds.map(() => "?").join(",")})`,
+          )
+          .bind(...administrativeIds)
+          .all()
+      ).results
+    : [];
+  const approvalById = new Map(approvals.map((row) => [row.task_id, row]));
   const rows = [];
-  for (const row of candidates) {
-    const task = taskById.get(row.task_id);
+  for (const candidate of candidates) {
+    const task = taskById.get(candidate.task_id);
     if (!task || !c.can("tasks", "view", task)) continue;
+    if (candidate.stage === "review" && task.status !== "review") continue;
+    const meta = parse(task.meta);
+    const committee = c.committees.find(
+      (item) => item.id === candidate.committee_id,
+    );
+    const row =
+      candidate.stage === "administration"
+        ? approvalById.get(candidate.task_id)
+        : {
+            task_id: task.id,
+            project_id: task.project_id,
+            committee_id: candidate.committee_id,
+            status: "awaiting_review",
+            created: task.created,
+            updated: task.updated,
+            snapshot: {
+              title: task.title,
+              description: task.description,
+              assignee_id: task.assignee_id,
+              created_by: task.created_by,
+              collaborators: meta.collaborators || [],
+              type: meta.type,
+              outcome: meta.outcome,
+              completion_note: meta.completion_note,
+              checklist: meta.checklist || [],
+              reviewer_id: meta.reviewer_id || committee?.manager_id || null,
+            },
+          };
+    if (!row || !c.can("task_approvals", "view", scope(row))) continue;
     rows.push({
       ...row,
       snapshot: parse(row.snapshot),
-      actions: Object.keys(TASK_ADMIN_ACTIONS).filter((a) =>
-        c.can("task_approvals", a, scope(row)),
-      ),
+      stage: candidate.stage,
+      awaiting_review: task.status === "review",
+      actions:
+        candidate.stage === "review"
+          ? []
+          : Object.keys(TASK_ADMIN_ACTIONS).filter((a) =>
+              c.can("task_approvals", a, scope(row)),
+            ),
     });
+  }
+  // Resolve names only for reviewers attached to authorized queue rows, never the directory.
+  const reviewerIds = [
+    ...new Set(
+      rows
+        .filter((row) => row.stage === "review")
+        .map((row) => row.snapshot.reviewer_id)
+        .filter(Boolean),
+    ),
+  ];
+  const reviewers = reviewerIds.length
+    ? (
+        await db
+          .prepare(
+            `SELECT id,name FROM nl_members WHERE id IN (${reviewerIds.map(() => "?").join(",")})`,
+          )
+          .bind(...reviewerIds)
+          .all()
+      ).results
+    : [];
+  const reviewerById = new Map(
+    reviewers.map((person) => [person.id, person.name]),
+  );
+  for (const row of rows) {
+    if (row.stage === "review")
+      row.snapshot.reviewer_name =
+        reviewerById.get(row.snapshot.reviewer_id) || null;
   }
   return {
     rows,
