@@ -61,7 +61,15 @@ for (const database of ["sqlite", "postgres"]) {
       assert.equal((await approval(a, id)) ?? null, null);
       assert.deepEqual(await row(a, "nl_tasks", id), submitted);
       assert.deepEqual(await a.DB.prepare("SELECT count(*) AS n FROM nl_audit").first(), auditsBefore);
-      assert.equal((await a.req(`task-approvals/detail?id=${id}`)).status, 404);
+      const detail = await a.req(`task-approvals/detail?id=${id}`); ok(detail);
+      assert.equal(detail.data.stage, "execution");
+      assert.equal(detail.data.task_id, id);
+      assert.equal(detail.data.execution_status, "review");
+      assert.deepEqual(detail.data.actions, []);
+      assert.equal((await a.req("task-approvals/decide", { id, version: 1, action: "approve", note: "Must not bypass reviewer" })).status, 409);
+      assert.equal((await approval(a, id)) ?? null, null);
+      assert.deepEqual(await row(a, "nl_tasks", id), submitted);
+      assert.deepEqual(await a.DB.prepare("SELECT count(*) AS n FROM nl_audit").first(), auditsBefore);
       assert.deepEqual((await a.req("task-approvals?status=pending")).data.rows, []);
       assert.deepEqual((await a.req("task-approvals?project=unrelated")).data.rows, []);
       assert.deepEqual((await a.req("task-approvals?committee=unrelated")).data.rows, []);
@@ -97,6 +105,7 @@ for (const database of ["sqlite", "postgres"]) {
         await setGrants(a, observer, [...visible, grant(resource, "view", "deny", { scope: "project", projectId: a.pid })]);
         list = await a.req("task-approvals", undefined, observer); ok(list);
         assert.deepEqual(list.data.rows, [], `${resource} record denial must hide pending review`);
+        assert.equal((await a.req(`task-approvals/detail?id=${id}`, undefined, observer)).status, 403);
         await setGrants(a, observer, [
           grant(resource, "view", "allow", { expires: "2000-01-01T00:00:00.000Z" }),
           grant(resource, "view", "allow", { scope: "project", projectId: "unrelated-project" }),
@@ -104,6 +113,7 @@ for (const database of ["sqlite", "postgres"]) {
         ]);
         list = await a.req("task-approvals", undefined, observer); ok(list);
         assert.deepEqual(list.data.rows, [], `${resource} expired grant cannot reveal pending review`);
+        assert.equal((await a.req(`task-approvals/detail?id=${id}`, undefined, observer)).status, 403);
       }
       assert.equal((await approval(a, id)) ?? null, null);
     }));

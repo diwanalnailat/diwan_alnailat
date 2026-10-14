@@ -2011,6 +2011,18 @@
         !dialog.open
       )
         return;
+      if (r.stage === "execution") {
+        await ensureData("task_detail");
+        if (
+          request !== approvalDetailRequest ||
+          !target.isConnected ||
+          !dialog.open
+        )
+          return;
+        await openTask(r.task_id);
+        dialog.close();
+        return;
+      }
       const name = (id) => r.people.find((p) => p.id === id)?.name || "—";
       const s = r.snapshot,
         available = r.actions.filter(

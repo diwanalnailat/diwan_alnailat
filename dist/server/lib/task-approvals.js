@@ -217,13 +217,25 @@ export async function taskApprovalDetail(db, c, id) {
     "SELECT * FROM nl_task_approvals WHERE task_id=?",
     string(id, 100),
   );
-  if (!row)
-    throw Object.assign(new Error("اعتماد المهمة غير موجود"), { status: 404 });
-  c.need("task_approvals", "view", scope(row));
   const task = await one(db, "SELECT * FROM nl_tasks WHERE id=?", id);
   if (!task)
     throw Object.assign(new Error("المهمة غير موجودة"), { status: 404 });
   c.need("tasks", "view", task);
+  if (!row) {
+    c.need("task_approvals", "view", {
+      ...task,
+      committee_id: parse(task.meta).committee_id,
+    });
+    // A submitted (or returned) task has no administrative record yet.
+    // Let the client open its current execution workflow without inventing an approval.
+    return {
+      stage: "execution",
+      task_id: task.id,
+      execution_status: task.status,
+      actions: [],
+    };
+  }
+  c.need("task_approvals", "view", scope(row));
   const { results: allExpenses } = await db
     .prepare(
       "SELECT * FROM nl_expenses WHERE project_id=? AND json_extract(meta,'$.task_id')=?",
@@ -302,6 +314,11 @@ export async function taskApprovalDecision(db, c, body) {
       status: 400,
     });
   const row = await taskApprovalDetail(db, c, body.id);
+  if (row.stage === "execution")
+    throw Object.assign(
+      new Error("المهمة لم تُحل لاعتماد الإدارة بعد؛ راجع مرحلة تنفيذها أولًا"),
+      { status: 409 },
+    );
   const action = choice(body.action, Object.keys(TASK_ADMIN_ACTIONS));
   c.need("task_approvals", action, scope(row));
   const note = string(body.note, 2000);

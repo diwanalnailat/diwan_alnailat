@@ -122,6 +122,18 @@ test("administrative approvals load on entry, show completion evidence and save 
     assert.match(d.querySelector("#detailBody").textContent, /Pending/);
     assert.equal(d.querySelector('#detailBody [data-next="done"]'), null, "administrator does not impersonate designated reviewer");
     d.querySelector("#detail").close();
+    // A stale/previously rendered administrative link must also open the current task.
+    const staleLink = d.createElement("button");
+    staleLink.dataset.action = "approval-open";
+    staleLink.dataset.id = reviewId;
+    d.querySelector("#taskApprovals").append(staleLink);
+    staleLink.click();
+    await wait(() => d.querySelector("#detail").open && !pending);
+    assert.equal(d.querySelector("#modal").open, false);
+    assert.match(d.querySelector("#detailBody").textContent, /Pending/);
+    assert.equal(d.querySelector('#detailBody [data-next="done"]'), null);
+    d.querySelector("#detail").close();
+    staleLink.remove();
     const statusFilter = d.querySelector('[name="approval_status"]');
     statusFilter.value = "awaiting_review";
     statusFilter.dispatchEvent(new w.Event("change", { bubbles: true }));
