@@ -1,6 +1,6 @@
 # Production review — 2026-10-14
 
-**Status: final release765598a is published and verified live. Tested operational workflows work; broad production readiness remains conditional on backup/restore, attachment scanning and capacity gates. Financial drafts require human review.**
+**Status: latest application release7727417 is published and verified live, including the monetary guard from765598a and subsequent task-approval visibility/detail fixes. Latest full suite232/232 and build passed; see CODEX_ACCOUNT_HANDOFF.md and task-state.md for follow-up evidence. Broad production readiness remains conditional on backup/restore, attachment scanning and capacity gates. Financial drafts require human review.**
 
 This review covers the existing Diwan application and the user's requested
 Sanad document extraction, permission boundaries and execution checklists.
