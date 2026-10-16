@@ -2,9 +2,11 @@
 
 Evidence only; this record does not authorize changes. Updated 2026-10-16 Asia/Riyadh.
 
-Current work: client screenshot feedback implemented locally on `feat/production-readiness`, based on `c005a8a`. User authorized publication; release is being committed and pushed to existing origin/main. Historical deployment/account continuity: [CODEX_ACCOUNT_HANDOFF.md](CODEX_ACCOUNT_HANDOFF.md). Operational backup/scanning/capacity gates remain open.
+Current work: client screenshot feedback and asset PostgreSQL fix published from `feat/production-readiness` to `origin/main` as `e231f51ea0ff0bd209ef168b37ace08c0009898c`; verified live 2026-10-16T17:59:43Z. Historical deployment/account continuity: [CODEX_ACCOUNT_HANDOFF.md](CODEX_ACCOUNT_HANDOFF.md). Operational backup/scanning/capacity gates remain open.
 
 ## Current outcome
+
+- LIVE 2026-10-16T17:59:43.917Z: application e231f51ea0ff0bd209ef168b37ace08c0009898c has successful Vercel Production deployment BQV9rRMNEfC1GW7wHCbzsFZPZXvX, confirmed through exact-commit GitHub status/deployment APIs. Primary production hostname serves all four matching client asset hashes; health 200, unauthenticated state/extract/task-upload-start/cron 401 and HEAD cron 405. Evidence %TEMP%/diwan-client-feedback-release.json. User-authorized publication complete, superseding earlier local/unpublished notes. No live business data or environment changes; no live 1 GiB transfer or authenticated asset-create claim. Vercel direct API metadata/log access unavailable (403); no environment/cron metadata revalidation claim. This follow-up changes the task record only; 257/257 general and 257/257 PostgreSQL tests plus build remain valid.
 
 - RELEASE PREPARED 2026-10-16T17:58:46.709Z: user explicitly requested publication. Refreshed origin/main equals local base c005a8a; all 34 recorded test/build inputs match final evidence exactly, so 257/257 general tests, 257/257 PostgreSQL tests and build are reused. No schema or environment changes required. Publish existing repository/project, then verify exact commit deployment and production assets/API protection.
 
