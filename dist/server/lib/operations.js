@@ -4,6 +4,7 @@ import { parse, permitted, withCommittees } from "./domain.js";
 import { committeeConfig, secondApprover } from "./governance.js";
 import { sanadConfig, SANAD_POLICY_VERSION } from "./sanad-policy.js";
 import { cleanupExpiredJoinUploads } from "./join-upload.js";
+import { cleanupExpiredTaskUploads } from "./task-upload.js";
 
 // Machine-readable setup contract. Values and secrets are never returned.
 export const INTEGRATION_REQUIREMENTS = {
@@ -169,6 +170,7 @@ export async function maintain(env) {
     .first();
   if (!lease) return { skipped: true };
   await cleanupExpiredJoinUploads(env, at);
+  await cleanupExpiredTaskUploads(env, at);
   const settings = parse(
     (await row(db, "SELECT value FROM nl_settings WHERE key='workspace'"))
       ?.value,

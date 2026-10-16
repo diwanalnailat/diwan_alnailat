@@ -206,7 +206,7 @@ test("committee draft reuses leadership people and retains explicit custom membe
     assert.equal(
       d.querySelector("[name=membership_role] option[value=supervisor]")
         .textContent,
-      "مشرف لجنة",
+      "مشرف متابعة",
     );
     await submit();
     const body = writes[0].body;

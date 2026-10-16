@@ -6309,6 +6309,28 @@ body {
   }
 }
 /* Administrative approvals reuse the workspace palette and dialog. */
+.approval-filters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: end;
+  gap: 12px;
+  margin-bottom: 20px;
+  max-width: 840px;
+}
+.approval-filters .field {
+  min-width: 0;
+  margin: 0;
+}
+.approval-filters select {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+}
+@media (max-width: 640px) {
+  .approval-filters {
+    grid-template-columns: 1fr;
+  }
+}
 .approval-list {
   padding: 0 24px;
 }

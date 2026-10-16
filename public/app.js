@@ -658,8 +658,8 @@
         "membership_role",
         [
           ["member", "عضو لجنة"],
-          ["manager", "مسؤول لجنة"],
-          ["supervisor", "مشرف لجنة"],
+          ["manager", "مسؤول مهام اللجنة"],
+          ["supervisor", "مشرف متابعة"],
           ...titles.map((title) => ["title:" + title, title]),
           ["other", "أخرى"],
         ],
@@ -704,7 +704,7 @@
             c.id ? "disabled" : "required",
           ),
         )}${field("مدير اللجنة", managerFields(c, access))}${field("المعتمد الثاني للمصاريف", select("second_approver_id", [["", "اختر صاحب صلاحية الاعتماد"], ...candidates.map((u) => [u.id, u.name])], c.config?.second_approver_id || "", access ? "" : "disabled"))}${field("بديل الاعتماد عند تعارض المصالح", select("review_delegate_id", [["", "اختر بديلًا عند الحاجة"], ...candidates.filter((u) => u.id !== c.config?.second_approver_id).map((u) => [u.id, u.name])], c.config?.review_delegate_id || "", access ? "" : "disabled"))}<p class="form-note full">البديل يراجع مصروف أحد المعتمدين، ولا يستطيع صاحب المصروف اعتماد طلبه. الأول مدير اللجنة. الثاني تختاره هنا من أصحاب صلاحية الاعتماد؛ ويمكن اختيار الشخص نفسه لعدة لجان. ظهور الاسم لا يمنح صلاحية جديدة.</p>${field("اختصاص اللجنة", textarea("description", c.description || "", 3), true)}`,
-      )}${part("2", "الأعضاء وصفات العضوية", "أضف أعضاء اللجنة وحدد مسؤولية كل شخص. المشرف يتابع أعمال اللجنة، ومدير اللجنة يتولى طلبات الانضمام المحالة إليها. يمكن للشخص الجمع بين دور قيادي وصفة عضوية، ويُشعر بكل دور عند الحفظ.", `<div class="full" id="committeeMembers">${c.members.map(committeeMemberRow).join("")}</div>${access ? '<button type="button" class="button full" data-action="membership-add">+ إضافة عضو أو مشرف من الديوان</button>' : ""}`)}${actions("حفظ اللجنة وربط الوصول")}</form>`,
+      )}${part("2", "الأعضاء وصفات العضوية", "مدير اللجنة هو المعيّن في القسم السابق لاعتماد المصاريف ومتابعة طلبات الانضمام ومراجعة المهام ما لم يُعيّن مراجع آخر", `<div class="role-explainer full"><span><strong>مسؤول مهام اللجنة</strong>يتولى إدارة المهام وإسنادها حسب صلاحياته ولا يصبح مدير اللجنة بمجرد اختيار هذه الصفة</span><span><strong>مشرف متابعة</strong>يتابع أعمال اللجنة حسب الصلاحيات الممنوحة له</span><span><strong>عضو لجنة</strong>ينفذ المهام المسندة إليه أو التي يشارك فيها</span></div><p class="form-note full">يمكن جمع القيادة وصفة العضوية للشخص نفسه وتبقى الصلاحيات الفعلية مضبوطة في مركز الصلاحيات</p><div class="full" id="committeeMembers">${c.members.map(committeeMemberRow).join("")}</div>${access ? '<button type="button" class="button full" data-action="membership-add">+ إضافة عضو أو مشرف من الديوان</button>' : ""}`)}${actions("حفظ اللجنة وربط الوصول")}</form>`,
       async (fd, f) => {
         const b = {
           ...formData(fd),
@@ -1444,6 +1444,7 @@
   }
 
   function suppliersPage() {
+    const suppliers = S.suppliers.filter((s) => !s.meta?.media_profile);
     return (
       heading(
         "الموردون",
@@ -1452,10 +1453,10 @@
           (mayCreate("suppliers") ? btn("مورد جديد", "supplier-new") : ""),
       ) +
       `<section class="panel">${
-        S.suppliers.length
+        suppliers.length
           ? table(
               ["المورد", "التخصص", "الجوال", "البريد", "الرقم الضريبي", ""],
-              S.suppliers.map(
+              suppliers.map(
                 (s) =>
                   `<tr><td><button class="text-link" data-action="supplier-edit" data-id="${s.id}">${esc(s.name)}</button><div class="task-sub">${num(S.expenses.filter((e) => e.supplier_id === s.id).length)} مصروف مرتبط</div></td><td>${esc(s.category || "—")}</td><td dir="ltr">${esc(s.phone || "—")}</td><td>${esc(s.email || "—")}</td><td>${esc(s.tax_number || "—")}</td><td>${can("suppliers", "edit", s) ? `<button class="icon-btn" data-action="supplier-edit" data-id="${s.id}" aria-label="تعديل">${icon("edit")}</button>` : ""}</td></tr>`,
               ),
@@ -1728,18 +1729,18 @@
       <section class="nailat-hero">
         <img class="nw-landscape" src="/brand/caravan-photo.png" width="1078" height="719" fetchpriority="high" alt="منقية النائلات في الصياهد">
         <header class="heritage-nav nw-nav"><a class="nw-brand" href="#heritage" aria-label="النائلات، الصفحة الرئيسية"><img src="/brand/isotype.png" width="58" height="54" alt=""><span><strong>النائلات</strong><small>منقية الوضح</small></span></a><div class="nw-links" role="navigation" aria-label="عن النائلات"><a href="#nailat-story" data-scroll="nailat-story">عن النائلات</a><a href="#nailat-honor" data-scroll="nailat-honor">لحظة التكريم</a><a href="#nailat-achievements" data-scroll="nailat-achievements">سجل الإنجازات</a></div><button class="nw-enter" data-page="overview">دخول الديوان ${icon("arrow", 16)}</button></header>
-        <div class="nw-hero-body"><div class="nw-hero-copy"><span class="nw-eyebrow">مهرجان الملك عبدالعزيز للإبل · الصياهد</span><h1>النائلات<span>للأصالة راية.</span></h1><p>نوادر الوضح، وعزيمةٌ تتجدد.<br>إرثٌ أصيل، وإنجازٌ يتجدد في الميدان.</p><a class="nw-scroll" href="#nailat-achievements" data-scroll="nailat-achievements"><b aria-hidden="true">↓</b>اكتشف مسيرة النائلات</a></div>
+        <div class="nw-hero-body"><div class="nw-hero-copy"><span class="nw-eyebrow">مهرجان الملك عبدالعزيز للإبل · الصياهد</span><h1>النائلات<span>للأصالة راية</span></h1><p>نوادر الوضح، وعزيمةٌ تتجدد<br>إرثٌ أصيل، وإنجازٌ يتجدد في الميدان</p><a class="nw-scroll" href="#nailat-achievements" data-scroll="nailat-achievements"><b aria-hidden="true">↓</b>اكتشف مسيرة النائلات</a></div>
         </div>
-        <div class="nw-hero-foot"><span>منقية الشيخ عبدالله بن عامر النهدي</span><span>أصالة الموروث. ورفعة الحضور.</span></div>
+        <div class="nw-hero-foot"><span>منقية الشيخ عبدالله بن عامر النهدي</span><span>أصالة الموروث ورفعة الحضور</span></div>
       </section>
-      <section class="nw-story" id="nailat-story"><div class="reveal"><span class="nw-section-label">إرث نعتز به</span><h2>في الوضح أصالة.<em>وللنائلات مكانة.</em></h2></div><div class="nw-story-copy reveal"><p>يجمعنا الشغف بالإبل، والاعتزاز بموروثٍ نحمله إلى الأجيال. وفي ميادين مهرجان الملك عبدالعزيز للإبل، تتجدد مسيرة النائلات؛ بعنايةٍ بالمنقية، وعزيمةٍ على المنافسة، وفرحةٍ بكل إنجاز.</p><img src="/brand/signature.png" width="617" height="165" alt="منقية النائلات الوضح" loading="lazy"></div></section>
-      <section class="nw-honor" id="nailat-honor"><div class="nw-honor-copy reveal"><img class="nw-watermark" src="/brand/isotype.png" alt="" loading="lazy"><span class="nw-section-label">لحظة التكريم</span><h2>تشريفٌ نعتزّ به.<br><em>وفخرٌ نحمله.</em></h2><p>سمو ولي العهد الأمير محمد بن سلمان يكرّم الشيخ عبدالله بن عامر النهدي، في ختام النسخة 9 من مهرجان الملك عبدالعزيز للإبل.</p><div class="nw-honor-caption">فرحة الإنجاز تكتمل بهذا التشريف.<br><span>قصر اليمامة · الرياض · <bdi>2025</bdi></span></div></div><figure class="nw-honor-photo"><img src="/brand/honoring.jpg" width="1280" height="1127" alt="سمو ولي العهد الأمير محمد بن سلمان يسلم راية التكريم للشيخ عبدالله بن عامر النهدي" loading="lazy"></figure></section>
-      <section class="nw-archive" id="nailat-achievements"><div class="nw-archive-head reveal"><div><span class="nw-section-label">محطات الحضور</span><h2>بيارقٌ ترتفع.<br><em>ومسيرةٌ تُروى.</em></h2></div><p>تصفّح المواسم، واكتشف نتائج النائلات في أشواط الجمل والفرديات.</p></div>
+      <section class="nw-story" id="nailat-story"><div class="reveal"><span class="nw-section-label">إرث نعتز به</span><h2>في الوضح أصالة<em>وللنائلات مكانة</em></h2></div><div class="nw-story-copy reveal"><p>يجمعنا الشغف بالإبل والاعتزاز بموروثٍ نحمله إلى الأجيال وفي ميادين مهرجان الملك عبدالعزيز للإبل، تتجدد مسيرة النائلات؛ بعنايةٍ بالمنقية، وعزيمةٍ على المنافسة، وفرحةٍ بكل إنجاز</p><img src="/brand/signature.png" width="617" height="165" alt="منقية النائلات الوضح" loading="lazy"></div></section>
+      <section class="nw-honor" id="nailat-honor"><div class="nw-honor-copy reveal"><img class="nw-watermark" src="/brand/isotype.png" alt="" loading="lazy"><span class="nw-section-label">لحظة التكريم</span><h2>تشريفٌ نعتزّ به<br><em>وفخرٌ نحمله</em></h2><p>سمو ولي العهد الأمير محمد بن سلمان يكرّم الشيخ عبدالله بن عامر النهدي في ختام النسخة 9 من مهرجان الملك عبدالعزيز للإبل</p><div class="nw-honor-caption">فرحة الإنجاز تكتمل بهذا التشريف<br><span>قصر اليمامة · الرياض · <bdi>2025</bdi></span></div></div><figure class="nw-honor-photo"><img src="/brand/honoring.jpg" width="1280" height="1127" alt="سمو ولي العهد الأمير محمد بن سلمان يسلم راية التكريم للشيخ عبدالله بن عامر النهدي" loading="lazy"></figure></section>
+      <section class="nw-archive" id="nailat-achievements"><div class="nw-archive-head reveal"><div><span class="nw-section-label">محطات الحضور</span><h2>بيارقٌ ترتفع<br><em>ومسيرةٌ تُروى</em></h2></div><p>تصفّح المواسم واكتشف نتائج النائلات في أشواط الجمل والفرديات</p></div>
         <div id="nailatResults" aria-busy="true"><p role="status">جارٍ تحميل نتائج المواسم…</p></div>
         <div class="nw-archive-note"><span>مهرجان الملك عبدالعزيز للإبل</span><span>منقية النائلات · لون الوضح</span></div>
       </section>
-      <section class="nw-photo-essay nw-field-presence nw-panorama"><figure><img src="/brand/white-camel-closeup.png" width="1375" height="778" alt="لقطة قريبة للوضح بخلفية صافية، من الهوية البصرية للنائلات" loading="lazy"></figure><div class="nw-panorama-caption"><span>شغفٌ يُورث. وعنايةٌ تُثمر.</span><h2>قريبون من إرثنا.<br>ماضون بعزيمتنا.</h2></div></section>
-      <section class="nw-diwan" id="diwan-entry"><span class="nw-section-label">ديوان النائلات</span><h2>جهودٌ تتكامل. وإنجازٌ يتحقق.</h2><p>هنا تجتمع جهود فريق النائلات، وتنتظم أعمال اللجان، وتكتمل تفاصيل المشاركة.</p><div class="nw-diwan-actions"><button class="nw-enter" data-page="overview">دخول الديوان ${icon("arrow", 16)}</button><button class="nw-outline" data-action="join-dيوان">طلب الانضمام</button></div></section>
+      <section class="nw-photo-essay nw-field-presence nw-panorama"><figure><img src="/brand/white-camel-closeup.png" width="1375" height="778" alt="لقطة قريبة للوضح بخلفية صافية، من الهوية البصرية للنائلات" loading="lazy"></figure><div class="nw-panorama-caption"><span>شغفٌ يُورث وعنايةٌ تُثمر</span><h2>قريبون من إرثنا<br>ماضون بعزيمتنا</h2></div></section>
+      <section class="nw-diwan" id="diwan-entry"><span class="nw-section-label">ديوان النائلات</span><h2>جهودٌ تتكامل وإنجازٌ يتحقق</h2><p>هنا تجتمع جهود فريق النائلات، وتنتظم أعمال اللجان، وتكتمل تفاصيل المشاركة</p><div class="nw-diwan-actions"><button class="nw-enter" data-page="overview">دخول الديوان ${icon("arrow", 16)}</button><button class="nw-outline" data-action="join-dيوان">طلب الانضمام</button></div></section>
       <footer class="nw-footer"><img src="/brand/signature.png" width="617" height="165" alt="منقية النائلات الوضح" loading="lazy"><div class="nw-footer-social"><span>تابع النائلات</span><a href="https://x.com/alnailat" target="_blank" rel="noopener noreferrer" aria-label="حساب النائلات على منصة X"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m4 3 16 18h-4L0 3h4ZM20 3 4 21" transform="translate(2 0) scale(.85 1)"/></svg><bdi>@alnailat</bdi></a></div><a href="#heritage" data-scroll="main">العودة للأعلى ↑</a></footer>
     </div>`;
   }
@@ -1956,7 +1957,7 @@
   function taskApprovalsPage() {
     approvalCursor = "";
     approvalPrevious = [];
-    return `${heading("اعتمادات المهام", "مراجعة الإنجاز والتكلفة وإجراءات الإدارة والمالية", btn("تحديث", "approval-refresh", "", "button-ghost", "check"))}<section class="panel"><div class="toolbar">${projectSelect()}${committeeSelect()}<label class="field"><span>حالة الاعتماد</span>${select("approval_status", [["", "كل الحالات"], ...Object.entries(approvalStatuses)], approvalStatus)}</label></div><div id="taskApprovals" aria-live="polite"></div></section>`;
+    return `${heading("اعتمادات المهام", "مراجعة الإنجاز والتكلفة وإجراءات الإدارة والمالية", btn("تحديث", "approval-refresh", "", "button-ghost", "check"))}<section class="panel"><div class="approval-filters"><label class="field"><span>المشروع</span>${projectSelect()}</label><label class="field"><span>اللجنة</span>${committeeSelect()}</label><label class="field"><span>حالة الاعتماد</span>${select("approval_status", [["", "كل الحالات"], ...Object.entries(approvalStatuses)], approvalStatus)}</label></div><div id="taskApprovals" aria-live="polite"></div></section>`;
   }
   function taskApprovalCard(r) {
     const reviewing = r.stage === "review",
@@ -2295,7 +2296,7 @@
   const uploadField = (camera = false) =>
     field(
       "المرفقات",
-      `<div class="upload-zone">${icon("file", 24)}<strong>أرفق ملفات أو صورًا</strong><span>PDF، صور، مستندات، أو صوت · حتى 10 م.ب للملف</span><input type="file" name="attachments" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.docx,.xlsx,.txt,audio/*"><div class="selected-files"></div></div>${camera ? '<span class="camera-upload">أو صوّر الفاتورة بالجوال<input type="file" name="attachments" accept="image/*" capture="environment"></span>' : ""}`,
+      `<div class="upload-zone">${icon("file", 24)}<strong>أرفق ملفات الإنجاز</strong><span>جميع صيغ الملفات · حتى 1 غيغابايت للملف</span><input type="file" name="attachments" multiple><div class="selected-files" data-verbatim></div></div>${camera ? '<span class="camera-upload">أو صوّر الفاتورة بالجوال<input type="file" name="attachments" accept="image/*" capture="environment"></span>' : ""}`,
       true,
     );
   const actions = (label = "حفظ", extra = "") =>
@@ -2348,10 +2349,111 @@
       [...fd.entries()].filter(([k]) => k !== "attachments"),
     );
   }
+  const taskUploadSessions = new WeakMap();
+  async function uploadTaskFile(file, scope, progress) {
+    if (file.size > 1024 ** 3) throw Error("الحد الأعلى لكل ملف 1 غيغابايت");
+    const scopeKey = JSON.stringify(scope);
+    let sessions = taskUploadSessions.get(file);
+    if (!sessions) taskUploadSessions.set(file, (sessions = new Map()));
+    let session = sessions.get(scopeKey);
+    const send = async (path, body, binary = false) => {
+      const response = await fetch(path, {
+        method: "POST",
+        headers: {
+          "Content-Type": binary
+            ? "application/octet-stream"
+            : "application/json",
+        },
+        body: binary ? body : JSON.stringify(body),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        if ([404, 410].includes(response.status)) sessions.delete(scopeKey);
+        throw Object.assign(
+          Error(result.error || "تعذر رفع المرفق أعد المحاولة"),
+          { status: response.status },
+        );
+      }
+      return result;
+    };
+    if (!session) {
+      session = {
+        ...(await send("/api/task-uploads/start", {
+          ...scope,
+          name: file.name,
+          size: file.size,
+          mime: file.type,
+        })),
+        next: 0,
+      };
+      sessions.set(scopeKey, session);
+    }
+    // Each request stays below the hosting body limit; retries retain the same
+    // owner-bound upload and never buffer the complete file in memory.
+    for (; session.next < session.parts; session.next++) {
+      const offset = session.next * session.chunk_bytes;
+      const chunk = file.slice(
+        offset,
+        Math.min(file.size, offset + session.chunk_bytes),
+      );
+      for (let attempt = 0; ; attempt++) {
+        try {
+          await send(
+            `/api/task-uploads/${session.id}/parts/${session.next}`,
+            chunk,
+            true,
+          );
+          break;
+        } catch (error) {
+          if (attempt >= 2 || (error.status && error.status < 500)) throw error;
+        }
+      }
+      progress(
+        Math.round(
+          (Math.min(file.size, offset + chunk.size) / file.size) * 100,
+        ),
+      );
+    }
+    const result = await send(`/api/task-uploads/${session.id}/complete`, {});
+    return result.id;
+  }
   async function uploadFiles(fd, resource, projectId = "", entity = "") {
     const ids = [];
     for (const file of fd.getAll("attachments")) {
       if (!(file instanceof File) || !file.size) continue;
+      if (resource === "tasks") {
+        const host =
+          document.querySelector("dialog[open] form") ||
+          document.querySelector("#modal form");
+        let progress = host?.querySelector("[data-upload-progress]");
+        if (host && !progress) {
+          progress = document.createElement("p");
+          progress.className = "form-note full";
+          progress.dataset.uploadProgress = "";
+          progress.dataset.verbatim = "";
+          progress.setAttribute("role", "status");
+          host.append(progress);
+        }
+        const report = (percent) => {
+          if (progress) progress.textContent = `رفع ${file.name} — ${percent}%`;
+        };
+        report(0);
+        ids.push(
+          await uploadTaskFile(
+            file,
+            {
+              entity_id: entity,
+              project_id: projectId,
+              committee_id: fd.get("committee_id") || committee || "",
+              purpose: fd.get("purpose") || "reference",
+              attach_later: !!fd.get("attach_later"),
+            },
+            report,
+          ),
+        );
+        if (progress) progress.textContent = `اكتمل رفع ${file.name}`;
+        continue;
+      }
       const form = new FormData();
       form.set("file", file);
       form.set("resource", resource);
@@ -2458,7 +2560,7 @@
     accept = ".pdf,.docx,.xlsx,image/*",
     required = false,
   ) =>
-    `<label class="typed-upload"><span>${icon(purpose === "voice" ? "mic" : "file", 22)}<strong>${label}</strong></span><small>${purpose === "voice" ? "ارفع ملفًا صوتيًا أو سجل توجيهك هنا" : "اختر من الجهاز أو اسحب الملفات هنا"}</small><input type="file" name="${name}" accept="${accept}" multiple ${required ? "required" : ""} data-purpose="${purpose}"><output class="upload-names"></output></label>`;
+    `<label class="typed-upload"><span>${icon(purpose === "voice" ? "mic" : "file", 22)}<strong>${label}</strong></span><small>${accept === "" ? "جميع صيغ الملفات · حتى 1 غيغابايت للملف" : purpose === "voice" ? "ارفع ملفًا صوتيًا أو سجل توجيهك هنا" : "اختر من الجهاز أو اسحب الملفات هنا"}</small><input type="file" name="${name}" ${accept ? `accept="${accept}"` : ""} multiple ${required ? "required" : ""} data-purpose="${purpose}"><output class="upload-names" data-verbatim></output></label>`;
   const rawMeta = (r) =>
     typeof r?.meta === "string" ? JSON.parse(r.meta || "{}") : r?.meta || {};
   // Keep recordings outside form named properties: form.voiceFiles resolves
@@ -2813,7 +2915,7 @@
           ),
           true,
         )}`,
-      )}${part("2", "طريقة التنفيذ والمرفقات", "كل نوع مرفق يظهر في مكانه داخل المهمة.", `${(S.settings.customFields || []).map((x) => field(esc(x.name) + (x.required ? " *" : ""), x.type === "select" ? select("custom_" + x.id, [["", "اختر"], ...(x.options || []).map((v) => [v, v])], t.meta.custom?.[x.id] || "", x.required ? "required" : "") : input("custom_" + x.id, t.meta.custom?.[x.id] || "", x.type === "number" ? "number" : x.type === "date" ? "date" : "text", x.required ? "required" : ""))).join("")}${field("المطلوب وتعليمات التنفيذ *", textarea("description", t.description || "", 4, 'required placeholder="حدد المطلوب والكمية والمكان والتوقيت"'), true)}${field("معيار قبول الإنجاز *", textarea("outcome", t.meta.outcome || "", 2, 'required placeholder="ما النتيجة التي سيراجعها مدير اللجنة؟"'), true)}${taskChecklistFields(t, assign)}<div class="upload-grid full">${typedUpload("guideFiles", "دليل تنفيذ المهمة", "guide")}${typedUpload("referenceFiles", "مراجع ومواصفات", "reference")}</div><div class="voice-field full">${typedUpload("voiceFiles", "التوجيه الصوتي", "voice", "audio/*")}<button type="button" class="button" data-draft-voice>${icon("mic")} تسجيل توجيه صوتي</button><div data-voice-preview></div></div>`)}<input type="hidden" name="parent_id" value="${esc(t.parent_id || options.parent_id || "")}">${locationFields(t.meta.site_location)}${actions(t.id ? "حفظ التفاصيل" : "حفظ المهمة وإشعار المنفذ")}</form>`,
+      )}${part("2", "طريقة التنفيذ والمرفقات", "كل نوع مرفق يظهر في مكانه داخل المهمة.", `${(S.settings.customFields || []).map((x) => field(esc(x.name) + (x.required ? " *" : ""), x.type === "select" ? select("custom_" + x.id, [["", "اختر"], ...(x.options || []).map((v) => [v, v])], t.meta.custom?.[x.id] || "", x.required ? "required" : "") : input("custom_" + x.id, t.meta.custom?.[x.id] || "", x.type === "number" ? "number" : x.type === "date" ? "date" : "text", x.required ? "required" : ""))).join("")}${field("المطلوب وتعليمات التنفيذ *", textarea("description", t.description || "", 4, 'required placeholder="حدد المطلوب والكمية والمكان والتوقيت"'), true)}${field("معيار قبول الإنجاز *", textarea("outcome", t.meta.outcome || "", 2, 'required placeholder="ما النتيجة التي سيراجعها مدير اللجنة؟"'), true)}${taskChecklistFields(t, assign)}<div class="upload-grid full">${typedUpload("guideFiles", "دليل تنفيذ المهمة", "guide", "")}${typedUpload("referenceFiles", "مراجع ومواصفات", "reference", "")}</div><div class="voice-field full">${typedUpload("voiceFiles", "التوجيه الصوتي", "voice", "audio/*")}<button type="button" class="button" data-draft-voice>${icon("mic")} تسجيل توجيه صوتي</button><div data-voice-preview></div></div>`)}<input type="hidden" name="parent_id" value="${esc(t.parent_id || options.parent_id || "")}">${locationFields(t.meta.site_location)}${actions(t.id ? "حفظ التفاصيل" : "حفظ المهمة وإشعار المنفذ")}</form>`,
       async (fd, f) => {
         await f.prepareTaskChecklist?.();
         if (f.voiceRecorder?.state === "recording")
@@ -2834,6 +2936,7 @@
           sel = S.committees.find(
             (c) => c.id === (t.id ? cid : v.committee_id),
           );
+        fd.set("committee_id", sel.id);
         const files = [];
         for (const [name, purpose] of [
           ["guideFiles", "guide"],
@@ -2997,9 +3100,16 @@
       review: "رفع الإنجاز للمراجع",
       done: "اعتماد الإنجاز",
     };
+    const existingProofs =
+      next === "review"
+        ? (await api("tasks/" + t.id)).files.filter(
+            (file) =>
+              rawMeta(file).purpose === "proof" && Number(file.size) > 0,
+          )
+        : [];
     modal(
       labels[next] || "تحديث المهمة",
-      `<form>${field(next === "review" ? "ملخص ما أنجزته ونتيجة التسليم" : "ملاحظتك للعضو أو لمدير اللجنة", textarea("note", "", 3, ["review", "blocked"].includes(next) || (t.status === "review" && next === "doing") ? "required" : ""), true)}${next === "review" ? typedUpload("proofFiles", "إثباتات الإنجاز", "proof") : ""}${actions(labels[next] || "تأكيد")}</form>`,
+      `<form>${field(next === "review" ? "ملخص ما أنجزته ونتيجة التسليم" : "ملاحظتك للعضو أو لمدير اللجنة", textarea("note", "", 3, ["review", "blocked"].includes(next) || (t.status === "review" && next === "doing") ? "required" : ""), true)}${next === "review" ? `<p class="form-note">${existingProofs.length ? "إثبات الإنجاز محفوظ ويمكنك إضافة ملفات أخرى قبل رفع المهمة للمراجعة" : "أرفق إثبات الإنجاز قبل رفع المهمة للمراجعة"}</p>${fileList(existingProofs)}${typedUpload("proofFiles", existingProofs.length ? "إثباتات إضافية — اختياري" : "إثباتات الإنجاز *", "proof", "", !existingProofs.length)}` : ""}${actions(labels[next] || "تأكيد")}</form>`,
       async (fd, f) => {
         const files =
           next === "review"
@@ -3349,7 +3459,7 @@
             e.id || cs.length === 1 ? "disabled" : "required",
           ),
           true,
-        )}${field("المهمة المرتبطة — اختياري", select("task_id", [["", "مصروف للجنة دون مهمة محددة"], ...S.tasks.filter((t) => expenseTaskAccess(t, c)).map((t) => [t.id, t.title])], e.meta.task_id || linked?.id || ""))}${field("وصف المصروف *", input("title", e.title || "", "text", 'required placeholder="مثال: وجبات ضيافة اليوم الأول"'), true)}${field("المورد — إن وجد", select("supplier_id", [["", "لا يوجد مورد مسجل"], ...S.suppliers.filter((s) => s.meta?.status !== "suspended").map((s) => [s.id, s.name])], e.supplier_id || ""))}${field("رقم الفاتورة / الإيصال", input("number", e.number || ""))}${field("الإجمالي شامل الضريبة — ر.س *", input("amount", e.amount === undefined ? "" : e.amount / 100, "number", 'required min="0.01" step="0.01"'))}${field("الضريبة ضمن الإجمالي — ر.س", input("tax", (e.tax || 0) / 100, "number", 'min="0" step="0.01"'))}${field("تاريخ الفاتورة أو الدفع *", input("date", e.date, "date", "required"))}`,
+        )}${field("المهمة المرتبطة — اختياري", select("task_id", [["", "مصروف للجنة دون مهمة محددة"], ...S.tasks.filter((t) => expenseTaskAccess(t, c)).map((t) => [t.id, t.title])], e.meta.task_id || linked?.id || ""))}${field("وصف المصروف *", input("title", e.title || "", "text", 'required placeholder="مثال: وجبات ضيافة اليوم الأول"'), true)}${field("المورد — إن وجد", select("supplier_id", [["", "لا يوجد مورد مسجل"], ...S.suppliers.filter((s) => s.id === e.supplier_id || (!s.meta?.media_profile && s.meta?.status !== "suspended")).map((s) => [s.id, s.name])], e.supplier_id || ""))}${field("رقم الفاتورة / الإيصال", input("number", e.number || ""))}${field("الإجمالي شامل الضريبة — ر.س *", input("amount", e.amount === undefined ? "" : e.amount / 100, "number", 'required min="0.01" step="0.01"'))}${field("الضريبة ضمن الإجمالي — ر.س", input("tax", (e.tax || 0) / 100, "number", 'min="0" step="0.01"'))}${field("تاريخ الفاتورة أو الدفع *", input("date", e.date, "date", "required"))}`,
       )}${part(
         "2",
         "من أين دُفع المبلغ؟",
@@ -4552,7 +4662,7 @@
             a.condition || "ready",
           ),
         )}`,
-      )}${part("2", "القيمة والتعامل المرتبط", "قيمة الأصل مرجع للسجل. المصروف المالي يسجل بإثبات مستقل حتى لا تتكرر التكلفة.", `${field("قيمة الوحدة — ر.س", input("unit_value", (m.unit_value || 0) / 100, "number", 'min="0" step="0.01"'))}${field("تاريخ التملك / التسجيل", input("acquired", m.acquired || "", "date"))}${field("المورد / المؤجر", select("supplier_id", [["", "غير مرتبط"], ...S.suppliers.map((s) => [s.id, s.name])], m.supplier_id || ""))}${field("مشروع الاستخدام — اختياري", select("project_id", [["", "أصل مشترك بين المواسم"], ...S.projects.map((p) => [p.id, p.title])], m.project_id || project))}<div class="form-grid full" data-rental-fields>${field("بداية الإيجار / الاستعارة", input("rental_start", m.rental_start || "", "date"))}${field("نهاية الإيجار / الاستعارة", input("rental_end", m.rental_end || "", "date"))}${field("إيجار الوحدة للفترة — ر.س", input("rental_total", (m.rental_total || 0) / 100, "number", 'min="0" step="0.01"'))}${field("مبلغ التأمين المسترد — ر.س", input("deposit", (m.deposit || 0) / 100, "number", 'min="0" step="0.01"'))}</div>`)}${part("3", "الموقع والمستندات", "التسليم لشخص وتوثيق الإرجاع يتمان من سجل حركة الأصل.", `${field("الموقع الحالي", input("location", a.location || ""))}${field("موقع الحفظ بعد الموسم", input("storage_location", m.storage_location || ""))}${locationFields(m.site_location, "الموقع الجغرافي للأصل — اختياري")}${field("المواصفات والملحقات والملاحظات", textarea("notes", m.notes || "", 3), true)}<div class="full">${typedUpload("assetFiles", "صور الأصل أو عقد الإيجار أو مستند الملكية", "asset", ".pdf,image/*")}<label class="button button-ghost">التقاط صورة للأصل<input type="file" name="assetFiles" accept="image/*" capture="environment" hidden></label></div>`)}${actions("حفظ سجل الأصل", '<button type="submit" value="print" class="button">حفظ وتجهيز الملصقات</button>')}</form>`,
+      )}${part("2", "القيمة والتعامل المرتبط", "قيمة الأصل مرجع للسجل. المصروف المالي يسجل بإثبات مستقل حتى لا تتكرر التكلفة.", `${field("قيمة الوحدة — ر.س", input("unit_value", (m.unit_value || 0) / 100, "number", 'min="0" step="0.01"'))}${field("تاريخ التملك / التسجيل", input("acquired", m.acquired || "", "date"))}${field("المورد / المؤجر", select("supplier_id", [["", "غير مرتبط"], ...S.suppliers.filter((s) => !s.meta?.media_profile || s.id === m.supplier_id).map((s) => [s.id, s.name])], m.supplier_id || ""))}${field("مشروع الاستخدام — اختياري", select("project_id", [["", "أصل مشترك بين المواسم"], ...S.projects.map((p) => [p.id, p.title])], m.project_id || project))}<div class="form-grid full" data-rental-fields>${field("بداية الإيجار / الاستعارة", input("rental_start", m.rental_start || "", "date"))}${field("نهاية الإيجار / الاستعارة", input("rental_end", m.rental_end || "", "date"))}${field("إيجار الوحدة للفترة — ر.س", input("rental_total", (m.rental_total || 0) / 100, "number", 'min="0" step="0.01"'))}${field("مبلغ التأمين المسترد — ر.س", input("deposit", (m.deposit || 0) / 100, "number", 'min="0" step="0.01"'))}</div>`)}${part("3", "الموقع والمستندات", "التسليم لشخص وتوثيق الإرجاع يتمان من سجل حركة الأصل.", `${field("الموقع الحالي", input("location", a.location || ""))}${field("موقع الحفظ بعد الموسم", input("storage_location", m.storage_location || ""))}${locationFields(m.site_location, "الموقع الجغرافي للأصل — اختياري")}${field("المواصفات والملحقات والملاحظات", textarea("notes", m.notes || "", 3), true)}<div class="full">${typedUpload("assetFiles", "صور الأصل أو عقد الإيجار أو مستند الملكية", "asset", ".pdf,image/*")}<label class="button button-ghost">التقاط صورة للأصل<input type="file" name="assetFiles" accept="image/*" capture="environment" hidden></label></div>`)}${actions("حفظ سجل الأصل", '<button type="submit" value="print" class="button">حفظ وتجهيز الملصقات</button>')}</form>`,
       async (fd, f, button) => {
         const files = await typedFiles(
           fd,
@@ -4999,7 +5109,7 @@
         "link_role",
         [
           ["member", "عضو — مهامه ومصاريفه"],
-          ["manager", "مدير اللجنة — يتابع ويعتمد"],
+          ["manager", "مسؤول مهام اللجنة — يدير المهام ويسندها"],
           ["supervisor", "مشرف متابعة — يطّلع"],
         ],
         link.role,
@@ -5103,7 +5213,7 @@
         true,
       )}<p class="form-note full">${m.id ? "يمكنك تعديل الصلاحيات أو إيقاف الوصول لاحقًا من ملف العضو." : "إذا اخترت اعتماد الحساب الآن، يدخل العضو بعد توثيق الرقم نفسه. اختيار «تجهيز الحساب» يبقيه بانتظار موافقتك."}</p></section>
       <section data-member-step="1" class="form-grid" hidden><input type="hidden" name="access_mode" value="custom"><p class="notice full">صلاحيات العضوية تأتي من صفة العضو في اللجنة. لتعديل الوصول العام أو الاستثناءات، احفظ الحساب ثم افتح مركز الصلاحيات.</p>
-      <div class="full"><h3>اللجان التي يعمل معها</h3><p class="muted">عضوية اللجنة تحدد مسؤوليات العمل. يمكن تركها فارغة لمن لديه وصول عام.</p></div><div class="full" id="memberCommittees">${links.map(memberLinkRow).join("")}</div><button type="button" class="button full" data-action="member-link-add">+ ربط بلجنة</button><div class="role-explainer full"><span><strong>عضو اللجنة</strong>مهامه ومصاريفه.</span><span><strong>مدير اللجنة</strong>متابعة مهام اللجنة واعتماد الإنجاز والموافقة الأولى للمصاريف.</span><span><strong>مشرف متابعة</strong>الاطلاع على عمل اللجنة ومصاريفه الشخصية.</span></div>
+      <div class="full"><h3>اللجان التي يعمل معها</h3><p class="muted">عضوية اللجنة تحدد مسؤوليات العمل. يمكن تركها فارغة لمن لديه وصول عام.</p></div><div class="full" id="memberCommittees">${links.map(memberLinkRow).join("")}</div><button type="button" class="button full" data-action="member-link-add">+ ربط بلجنة</button><div class="role-explainer full"><span><strong>عضو اللجنة</strong>مهامه ومصاريفه.</span><span><strong>مسؤول مهام اللجنة</strong>إدارة المهام وإسنادها حسب صلاحياته وتعيين مدير اللجنة يكون من إعداد اللجنة</span><span><strong>مشرف متابعة</strong>الاطلاع على عمل اللجنة ومصاريفه الشخصية.</span></div>
       <div class="full"><button type="button" class="button" data-action="permissions-open" data-id="${esc(m.id || "")}">فتح مركز الصلاحيات</button></div></section>
       <section data-member-step="2" hidden><h3>راجع الوصول قبل حفظه</h3><div id="memberReview"></div></section><div class="form-error" role="alert" hidden></div><div class="member-wizard-actions"><button type="button" class="button button-ghost" data-action="close-modal">إلغاء</button><button type="button" class="button" id="memberBack" data-action="member-back" hidden>السابق</button><button type="button" class="button button-dark" id="memberNext" data-action="member-next">التالي</button><button type="submit" class="button button-dark" id="memberSave" hidden>حفظ الوصول</button></div></form>`,
       async (fd, f) => {
@@ -5437,7 +5547,7 @@
   function sanadChatView() {
     const connected = S.integrations?.ai;
     $("#assistantBody").innerHTML =
-      `<div class="sanad-context"><span>${esc(labels[sanadContext.page] || "الديوان")}</span><strong>${esc(sanadContext.task_id ? S.tasks.find((t) => t.id === sanadContext.task_id)?.title || "" : sanadContext.committee_id ? committeeName(sanadContext.committee_id) : sanadContext.project_id ? projectName(sanadContext.project_id) : "بحسب وصولك")}</strong></div><div id="sanadMessages" class="sanad-messages" aria-live="polite">${sanadTurns.length ? sanadTurns.map((t) => `<div class="sanad-bubble from-member">${esc(t.message)}</div><div class="sanad-bubble from-sanad"><span class="eyebrow">سَنَد</span><p>${esc(t.reply)}</p>${t.proposal?.resource ? `<button class="button compact" data-action="sanad-draft" data-id="${esc(t.id)}">مراجعة ${esc({ tasks: "المهمة", expenses: "المصروف", suppliers: "المورد", assets: "الأصل", guides: "دليل التنفيذ" }[t.proposal.resource])}</button>` : ""}<small>${t.created ? date(t.created.slice(0, 10)) : "الآن"}</small></div>`).join("") : `<div class="sanad-welcome">${sanadSymbol}<span class="eyebrow">سَنَد الديوان</span><h2>ما الذي ننجزه اليوم؟</h2><p>من متابعة اللجان إلى تفاصيل المهمة،<br>ابدأ بسؤالك أو بما تريد إنجازه.</p></div>`}</div><div class="sanad-history-actions"><button type="button" class="text-link" data-action="sanad-clear">حذف محادثاتي</button><span>المحادثة ضمن النطاق الحالي</span></div><div class="sanad-suggestions">${["كم صرفت كل لجنة؟", "جهّز لي مهمة لاستقبال الضيوف", "أبغى أضيف مورد خيام"].map((q) => `<button type="button" data-action="sanad-suggest" data-prompt="${esc(q)}">${q}</button>`).join("")}</div>${!connected ? '<div class="sanad-offline">المحادثة والتحليل بانتظار تفعيل خدمة الذكاء الاصطناعي. يمكنك الآن فتح النماذج وتجهيز دليل التنفيذ.</div>' : ""}<form id="sanadChatForm" class="sanad-composer"><textarea name="message" rows="2" maxlength="6000" required aria-label="رسالتك إلى سَنَد" placeholder="اسأل، أو صف ما تريد إنجازه…"></textarea><div><button class="icon-btn" type="button" data-action="sanad-voice" aria-label="تسجيل رسالة صوتية">${icon("mic")}</button><span id="sanadVoiceState"></span><button class="button button-dark" type="submit">إرسال ${icon("arrow", 16)}</button></div><p class="form-error" hidden></p></form><details class="sanad-quick"><summary>أدوات الديوان <span>المهام · المصاريف · الوثائق</span></summary><div class="sanad-tools">${[
+      `<div class="sanad-context"><span>${esc(labels[sanadContext.page] || "الديوان")}</span><strong>${esc(sanadContext.task_id ? S.tasks.find((t) => t.id === sanadContext.task_id)?.title || "" : sanadContext.committee_id ? committeeName(sanadContext.committee_id) : sanadContext.project_id ? projectName(sanadContext.project_id) : "بحسب وصولك")}</strong></div><div id="sanadMessages" class="sanad-messages" aria-live="polite">${sanadTurns.length ? sanadTurns.map((t) => `<div class="sanad-bubble from-member">${esc(t.message)}</div><div class="sanad-bubble from-sanad"><span class="eyebrow">سَنَد</span><p>${esc(t.reply)}</p>${t.proposal?.resource ? `<button class="button compact" data-action="sanad-draft" data-id="${esc(t.id)}">مراجعة ${esc({ tasks: "المهمة", expenses: "المصروف", suppliers: "المورد", assets: "الأصل", guides: "دليل التنفيذ" }[t.proposal.resource])}</button>` : ""}<small>${t.created ? date(t.created.slice(0, 10)) : "الآن"}</small></div>`).join("") : `<div class="sanad-welcome">${sanadSymbol}<span class="eyebrow">سَنَد الديوان</span><h2>ما الذي ننجزه اليوم؟</h2><p>من متابعة اللجان إلى تفاصيل المهمة<br>ابدأ بسؤالك أو بما تريد إنجازه</p></div>`}</div><div class="sanad-history-actions"><button type="button" class="text-link" data-action="sanad-clear">حذف محادثاتي</button></div>${!connected ? '<div class="sanad-offline">المحادثة والتحليل بانتظار تفعيل خدمة الذكاء الاصطناعي. يمكنك الآن فتح النماذج وتجهيز دليل التنفيذ.</div>' : ""}<form id="sanadChatForm" class="sanad-composer"><textarea name="message" rows="2" maxlength="6000" required aria-label="رسالتك إلى سَنَد" placeholder="اسأل أو صف ما تريد إنجازه"></textarea><div><button class="icon-btn" type="button" data-action="sanad-voice" aria-label="تسجيل رسالة صوتية">${icon("mic")}</button><span id="sanadVoiceState"></span><button class="button button-dark" type="submit">إرسال ${icon("arrow", 16)}</button></div><p class="form-error" hidden></p></form><details class="sanad-quick"><summary>أدوات الديوان <span>المهام · المصاريف · الوثائق</span></summary><div class="sanad-tools">${[
         ["tasks", "task-new", "مهمة"],
         ["expenses", "expense-new", "مصروف وفاتورة"],
         ["suppliers", "supplier-new", "مورد"],
@@ -5508,16 +5618,98 @@
             priority: task.priority,
             sections: S.settings.guideTemplate.sections.map((title, i) => ({
               title,
-              body: i === 0 ? task.description : "",
+              body:
+                i === 0
+                  ? [task.description, task.meta.outcome]
+                      .filter(Boolean)
+                      .join("\n\n")
+                  : /إثبات|قبول/.test(title)
+                    ? task.meta.outcome || ""
+                    : /قائمة التحقق/.test(title)
+                      ? (task.meta.checklist || [])
+                          .map((step) => step.text)
+                          .join("\n")
+                      : "",
             })),
           },
         }
       : { project_id: project || S.projects[0]?.id, content: {} };
     $("#assistantBody").innerHTML =
-      '<button class="button compact" data-action="assistant">العودة إلى المحادثة</button>' +
+      (task
+        ? '<button type="button" class="button compact" data-guide-return>العودة إلى المهمة</button><p class="notice">يصوغ سند خطوات الدليل من تفاصيل المهمة ومعيار قبولها لتراجعها قبل الحفظ</p><button type="button" class="button" data-guide-generate>توليد خطوات الدليل مع سند</button><p data-guide-state role="status" aria-live="polite"></p>'
+        : '<button class="button compact" data-action="assistant">العودة إلى المحادثة</button>') +
       guideFields();
     if (!$("#assistant").open) $("#assistant").showModal();
-    $("#guideForm").addEventListener("submit", guideSubmit);
+    const form = $("#guideForm");
+    form.addEventListener("submit", guideSubmit);
+    if (task) {
+      $("[data-guide-return]").onclick = () => {
+        $("#assistant").close();
+        openTask(task.id);
+      };
+      const button = $("[data-guide-generate]"),
+        state = $("[data-guide-state]");
+      button.onclick = async () => {
+        if (!S.integrations?.ai) {
+          state.textContent =
+            "توليد سند بانتظار تفعيل الخدمة ويمكنك مراجعة التفاصيل المنقولة من المهمة";
+          return;
+        }
+        const sections = [...form.querySelectorAll("[data-section-title]")],
+          stepField =
+            sections.find((field) =>
+              /خطوات/.test(field.dataset.sectionTitle),
+            ) || sections[2],
+          original = stepField?.value,
+          title = form.elements.namedItem("title").value.trim();
+        if (!stepField) {
+          state.textContent = "أضف قسم خطوات التنفيذ إلى قالب الدليل أولًا";
+          return;
+        }
+        button.disabled = true;
+        form.querySelectorAll('[type="submit"]').forEach((submit) => {
+          submit.disabled = true;
+        });
+        state.setAttribute("aria-busy", "true");
+        state.textContent = "يجهز سند خطوات الدليل من تفاصيل المهمة";
+        try {
+          const result = await api("agent/task-guide", {
+            id: task.id,
+            committee_id: task.meta.committee_id,
+            title,
+            description: task.description,
+            outcome: task.meta.outcome,
+          });
+          if (!form.isConnected || !$("#assistant").open) return;
+          if (
+            stepField.value !== original ||
+            form.elements.namedItem("title").value.trim() !== title
+          ) {
+            state.textContent =
+              "حُفظت تعديلاتك كما هي ويمكنك طلب التوليد مجددًا";
+            return;
+          }
+          if (
+            !Array.isArray(result.steps) ||
+            !result.steps.length ||
+            result.steps.some((step) => typeof step !== "string")
+          )
+            throw Error("لم تكتمل خطوات الدليل حاول مجددًا");
+          stepField.value = result.steps.join("\n");
+          state.textContent =
+            "جهز سند خطوات الدليل راجعها وعدلها قبل الحفظ أو الإرفاق بالمهمة";
+        } catch (error) {
+          if (form.isConnected) state.textContent = error.message;
+        } finally {
+          button.disabled = false;
+          form.querySelectorAll('[type="submit"]').forEach((submit) => {
+            submit.disabled = false;
+          });
+          state.setAttribute("aria-busy", "false");
+        }
+      };
+      button.click();
+    }
   }
   async function sendSanad(ev) {
     ev.preventDefault();

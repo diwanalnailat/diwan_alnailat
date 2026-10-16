@@ -1,5 +1,32 @@
 # Storage review — 2026-10-13
 
+## Task attachment update — 2026-10-16
+
+Task attachments now accept every file extension up to 1 GiB (1,073,741,824
+bytes) per file through owner-bound 3 MiB upload parts. The existing private
+all-format bucket is reused on Supabase; the original R2 deployment retains its
+private bucket. No bucket, schema, audience or provider-plan change is required.
+The ordinary `/api/upload` endpoint and non-task file limits remain unchanged.
+
+The server checks current task access for each upload step and download part,
+checks draft bindings against their task/project/committee, and verifies each
+part's size and SHA-256 before streaming it. Arbitrary formats download as opaque
+attachments; the existing fixed audio MIME allowlist retains inline playback.
+Upload progress and bounded retries are available in the task forms. Incomplete
+uploads expire after 24 hours; maintenance deletes at most 200 parts per run.
+Completed, unbound drafts retain the existing retention behavior.
+
+The tests consume an exact 1 GiB download locally without a whole-file buffer,
+and cover authorization, expiry, corruption, cancellation and retry races on
+SQLite and PGlite. This is not a live 1 GiB transfer or a load test. Provider
+bandwidth/storage quotas and the existing download runtime limit still apply.
+Private bucket metadata was inspected read-only on 2026-10-16: all MIME types,
+4 MiB object limit, private visibility. No live objects were uploaded or deleted.
+
+References: [Supabase file limits](https://supabase.com/docs/guides/storage/uploads/file-limits)
+and [Vercel function limits](https://vercel.com/docs/functions/limitations).
+The historical findings below describe the earlier ordinary upload contract.
+
 The application stores object bytes in private Storage, with names, ownership and
 object references in the database. This review does not establish support for
 100,000 active users or 1,000,000 GB of stored objects.

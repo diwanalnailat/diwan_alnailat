@@ -326,3 +326,123 @@ test("project closure during provider work and wrong task committee reject gener
     await a.DB.close();
   }
 });
+
+const guideReaderGrants = [
+  { resource: "tasks", action: "view", scope: "all", effect: "allow" },
+  { resource: "assistant", action: "view", scope: "all", effect: "allow" },
+  { resource: "assistant", action: "create", scope: "all", effect: "allow" },
+];
+
+test("guide drafts use task read and assistant create access even for completed tasks without mutating their checklist", async () => {
+  const a = await fixture();
+  try {
+    const id = await saveTask(a);
+    const reader = await addMember(a, "guide-reader", guideReaderGrants);
+    await a.DB.prepare("UPDATE nl_tasks SET status='done' WHERE id=?")
+      .bind(id)
+      .run();
+    const before = await a.DB.prepare("SELECT * FROM nl_tasks WHERE id=?")
+      .bind(id)
+      .first();
+    let calls = 0;
+    configure(a, async () => {
+      calls++;
+      return answer({ steps });
+    });
+    const result = await a.req("agent/task-guide", payload(a, { id }), reader);
+    assert.equal(result.status, 200, JSON.stringify(result.data));
+    assert.deepEqual(result.data, { steps, requires_review: true });
+    assert.equal(calls, 1);
+    assert.deepEqual(
+      await a.DB.prepare("SELECT * FROM nl_tasks WHERE id=?").bind(id).first(),
+      before,
+    );
+    for (const table of ["nl_guides", "nl_agent_turns"])
+      assert.equal(
+        (await a.DB.prepare(`SELECT count(*) AS n FROM ${table}`).first()).n,
+        0,
+      );
+    assert.equal(
+      (await a.req("agent/task-checklist", payload(a, { id }), reader)).status,
+      403,
+    );
+  } finally {
+    await a.DB.close();
+  }
+});
+
+test("guide generation requires an existing task and rejects explicit task and assistant denials before provider access", async () => {
+  const a = await fixture();
+  try {
+    const id = await saveTask(a);
+    let calls = 0;
+    configure(a, async () => {
+      calls++;
+      return answer({ steps });
+    });
+    assert.equal((await a.req("agent/task-guide", payload(a))).status, 400);
+    assert.equal(
+      (await a.req("agent/task-guide", payload(a, { id: "missing" }))).status,
+      404,
+    );
+    for (const [resource, action] of [
+      ["tasks", "view"],
+      ["assistant", "view"],
+      ["assistant", "create"],
+    ]) {
+      const denied = await addMember(a, `guide-denied-${resource}-${action}`, [
+        ...guideReaderGrants,
+        { resource, action, scope: "all", effect: "deny" },
+      ]);
+      assert.equal(
+        (await a.req("agent/task-guide", payload(a, { id }), denied)).status,
+        403,
+      );
+    }
+    assert.equal(calls, 0);
+  } finally {
+    await a.DB.close();
+  }
+});
+
+test("guide drafts are withheld when task access is revoked during classification or generation", async () => {
+  for (const stage of ["sanad_scope", "sanad_task_checklist"]) {
+    const a = await fixture();
+    try {
+      const id = await saveTask(a);
+      const reader = await addMember(a, "guide-revoked", guideReaderGrants);
+      let calls = 0;
+      Object.assign(a.env, ai, {
+        PROVIDER_FETCH: async (_, init) => {
+          calls++;
+          const name = JSON.parse(init.body).text.format.name;
+          if (name === stage)
+            await a.DB.prepare("UPDATE nl_members SET grants=? WHERE id=?")
+              .bind(
+                JSON.stringify([
+                  ...guideReaderGrants,
+                  {
+                    resource: "tasks",
+                    action: "view",
+                    scope: "all",
+                    effect: "deny",
+                  },
+                ]),
+                reader.memberId,
+              )
+              .run();
+          return answer(
+            name === "sanad_scope" ? { decision: "allow" } : { steps },
+          );
+        },
+      });
+      assert.equal(
+        (await a.req("agent/task-guide", payload(a, { id }), reader)).status,
+        403,
+      );
+      assert.equal(calls, stage === "sanad_scope" ? 1 : 2);
+    } finally {
+      await a.DB.close();
+    }
+  }
+});

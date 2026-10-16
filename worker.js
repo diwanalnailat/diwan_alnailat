@@ -33,6 +33,12 @@ import {
 } from "./lib/task-approvals.js";
 import { joinFileStream } from "./lib/join-upload.js";
 import {
+  beginTaskUpload,
+  uploadTaskChunk,
+  completeTaskUpload,
+  taskFileStream,
+} from "./lib/task-upload.js";
+import {
   encodeStoredFile,
   storedFileStream,
   storedFileBytes,
@@ -51,7 +57,12 @@ import {
   reviewJoin,
 } from "./lib/join-requests.js";
 import { ASSET_CATEGORIES, ASSET_BATCH_LIMIT } from "./lib/assets.js";
-import { jsonBody, formBody, httpsOrigin, boundedBody } from "./lib/security.js";
+import {
+  jsonBody,
+  formBody,
+  httpsOrigin,
+  boundedBody,
+} from "./lib/security.js";
 import {
   heritageResults,
   saveHeritageResults,
@@ -407,7 +418,7 @@ async function activeMember(db, id, optional = false) {
   if (!m) fail("اختر عضوًا نشطًا");
   return m;
 }
-async function fileBindings(db, c, ids, resource, entityId) {
+async function fileBindings(db, c, ids, resource, entityId, target = null) {
   if (!Array.isArray(ids) || ids.length > 10) fail("عدد المرفقات غير صالح");
   const stmts = [];
   for (const id of ids) {
@@ -420,6 +431,31 @@ async function fileBindings(db, c, ids, resource, entityId) {
         parse(f.meta).pending_resource !== resource)
     )
       fail("مرفق غير متاح", 403);
+    const fileMeta = parse(f.meta);
+    const uploadScope =
+      fileMeta.task_upload ||
+      (resource === "tasks" && fileMeta.pending_resource === "tasks"
+        ? {
+            entity_id: f.entity_id === f.created_by ? "" : f.entity_id,
+            project_id: fileMeta.project_id || "",
+            committee_id: fileMeta.committee_id || "",
+          }
+        : null);
+    if (uploadScope) {
+      const task = target || (await record(db, "tasks", entityId));
+      const committeeId =
+        task.committee_id || parse(task.meta).committee_id || "";
+      if (
+        resource !== "tasks" ||
+        (uploadScope.entity_id && uploadScope.entity_id !== entityId) ||
+        ((fileMeta.task_upload || uploadScope.project_id) &&
+          uploadScope.project_id !== task.project_id) ||
+        ((fileMeta.task_upload || uploadScope.committee_id) &&
+          (uploadScope.committee_id || "") !== committeeId)
+      )
+        fail("المرفق يتبع مهمة أو لجنة أخرى", 403);
+      c.need("tasks", "upload", task);
+    }
     stmts.push(
       db
         .prepare(
@@ -434,7 +470,11 @@ async function fileBindings(db, c, ids, resource, entityId) {
   return stmts;
 }
 async function assertFileRead(db, c, f) {
-  if (["join_upload", "join_parts"].includes(f.entity_type))
+  if (
+    ["join_upload", "join_parts", "task_upload", "task_parts"].includes(
+      f.entity_type,
+    )
+  )
     fail("المرفق غير متاح", 403);
   if (f.entity_type === "join_requests") {
     const request = await record(db, "join_requests", f.entity_id);
@@ -449,6 +489,17 @@ async function assertFileRead(db, c, f) {
   if (f.entity_type === "draft") {
     if (f.created_by !== c.u.id) fail("المرفق غير متاح", 403);
     const meta = parse(f.meta);
+    const taskId =
+      meta.task_upload?.entity_id ||
+      (meta.pending_resource === "tasks" && f.entity_id !== f.created_by
+        ? f.entity_id
+        : "");
+    if (taskId) {
+      const task = await record(db, "tasks", taskId);
+      c.need("tasks", "view", task);
+      c.need("tasks", "download", task);
+      return;
+    }
     c.need(meta.pending_resource || "documents", "download", {
       created_by: f.created_by,
       project_id: meta.project_id,
@@ -1164,6 +1215,75 @@ async function handle(req, env) {
   if (p === "/api/registration/request")
     fail("ابدأ بتوثيق الجوال عبر واتساب لإرسال طلب الانضمام", 400);
   const c = await context(req, env);
+  if (p.startsWith("/api/task-uploads/") && req.method === "POST") {
+    const authorize = async (scope) => {
+      const fresh = await context(req, env);
+      if (fresh.u.id !== c.u.id) fail("انتهت جلسة الرفع", 403);
+      const task = scope.entity_id
+        ? await record(db, "tasks", scope.entity_id)
+        : null;
+      if (!task && (!scope.project_id || !scope.committee_id))
+        fail("اختر المشروع واللجنة قبل رفع مرفقات المهمة");
+      const candidate = task || {
+        project_id: scope.project_id,
+        committee_id: scope.committee_id,
+        created_by: fresh.u.id,
+      };
+      fresh.need("tasks", task ? "edit" : "create", candidate);
+      fresh.need("tasks", "upload", candidate);
+      if (task) {
+        fresh.need("tasks", "view", task);
+        scope.project_id = task.project_id;
+        scope.committee_id = parse(task.meta).committee_id || "";
+      }
+      const projectId = task?.project_id || scope.project_id;
+      if (projectId) {
+        const project = await record(db, "projects", projectId);
+        if (project.status === "closed") fail("المشروع مغلق", 403);
+      }
+      if (!task && scope.committee_id) {
+        const committee = await record(db, "committees", scope.committee_id);
+        if (committee.project_id !== scope.project_id)
+          fail("اللجنة لا تتبع المشروع المحدد", 400);
+      }
+      choice(scope.purpose, Object.keys(FILE_PURPOSES));
+    };
+    if (p === "/api/task-uploads/start") {
+      await limit(db, "task-upload-start:" + c.u.id, 20, 3600);
+      return json(
+        await beginTaskUpload(
+          env,
+          c.u.id,
+          await jsonBody(req, 4096),
+          authorize,
+        ),
+      );
+    }
+    const part = p.match(
+      /^\/api\/task-uploads\/([a-zA-Z0-9_-]+)\/parts\/(\d+)$/,
+    );
+    if (part) {
+      await limit(db, "task-upload-part:" + c.u.id, 1200, 3600);
+      return json(
+        await uploadTaskChunk(
+          req,
+          env,
+          c.u.id,
+          part[1],
+          Number(part[2]),
+          authorize,
+        ),
+      );
+    }
+    const complete = p.match(
+      /^\/api\/task-uploads\/([a-zA-Z0-9_-]+)\/complete$/,
+    );
+    if (complete)
+      return json(
+        await completeTaskUpload(env, c.u.id, complete[1], authorize),
+      );
+    fail("المسار غير موجود", 404);
+  }
   if (p === "/api/task-approvals" && req.method === "GET") {
     if (!maySeeModule(c.u, "task_approvals", c.bundles))
       fail("ليس لديك صلاحية مشاهدة اعتمادات المهام", 403);
@@ -1299,6 +1419,27 @@ async function handle(req, env) {
     );
     if (!f) fail("المرفق غير متاح", 404);
     await assertFileRead(db, c, f);
+    if (f.object_key.startsWith("taskchunks:")) {
+      return new Response(
+        taskFileStream(env, f, async () => {
+          const current = await one(
+            db,
+            "SELECT * FROM nl_files WHERE id=?",
+            f.id,
+          );
+          if (!current) fail("المرفق غير متاح", 404);
+          await assertFileRead(db, await context(req, env), current);
+        }),
+        {
+          headers: {
+            ...policy,
+            "Content-Type": f.mime,
+            "Content-Disposition": `${url.searchParams.has("inline") && /^audio\//.test(f.mime) ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(f.name)}`,
+            "Content-Length": String(f.size),
+          },
+        },
+      );
+    }
     if (f.object_key.startsWith("legacy:")) {
       const old = await one(
         db,
@@ -2824,7 +2965,14 @@ async function handle(req, env) {
           .bind(id, ...vals, c.u.id, now(), now());
     const stmts = [
       stmt,
-      ...(await fileBindings(db, c, b.files || [], "tasks", id)),
+      ...(await fileBindings(db, c, b.files || [], "tasks", id, {
+        id,
+        project_id: project.id,
+        committee_id: committeeId,
+        created_by: old?.created_by || c.u.id,
+        assignee_id: assignee,
+        meta,
+      })),
       audit(
         db,
         c.u,
@@ -2924,6 +3072,7 @@ async function handle(req, env) {
       (meta.reviewer_id || committee.manager_id) !== c.u.id
     )
       fail("قرار الاعتماد أو الإعادة لدى مراجع الإنجاز المحدد", 403);
+    let transitionFiles;
     if (next === "review") {
       if (!(meta.reviewer_id || committee.manager_id))
         fail("حدد مراجع الإنجاز قبل رفع المهمة للمراجعة");
@@ -2943,6 +3092,32 @@ async function handle(req, env) {
       if ((meta.checklist || []).some((x) => !x.done))
         fail("أكمل خطوات التنفيذ المعتمدة قبل رفعها للمراجعة");
       meta.completion_note = string(b.note, 2000);
+      // Check staged ownership and task scope before accepting it as evidence.
+      transitionFiles = await fileBindings(db, c, b.files || [], "tasks", t.id);
+      const evidence = [
+        ...(await all(
+          db,
+          "SELECT * FROM nl_files WHERE entity_type='tasks' AND entity_id=?",
+          t.id,
+        )),
+        ...(await Promise.all(
+          (b.files || []).map((id) =>
+            one(db, "SELECT * FROM nl_files WHERE id=?", id),
+          ),
+        )),
+      ];
+      if (
+        !evidence.some((file) => {
+          if (!file || parse(file.meta).purpose !== "proof") return false;
+          return (
+            (file.entity_type === "tasks" && file.entity_id === t.id) ||
+            (file.entity_type === "draft" &&
+              file.created_by === c.u.id &&
+              parse(file.meta).pending_resource === "tasks")
+          );
+        })
+      )
+        fail("أرفق إثبات الإنجاز قبل رفع المهمة للمراجعة");
     }
     if (next === "done") {
       c.need("tasks", "approve", t);
@@ -2993,7 +3168,8 @@ async function handle(req, env) {
               ),
             ]
           : []),
-        ...(await fileBindings(db, c, b.files || [], "tasks", t.id)),
+        ...(transitionFiles ??
+          (await fileBindings(db, c, b.files || [], "tasks", t.id))),
         audit(
           db,
           c.u,
@@ -4283,7 +4459,7 @@ async function handle(req, env) {
         name: k.name,
         role: {
           member: "عضو",
-          manager: "مدير اللجنة",
+          manager: "مسؤول مهام اللجنة",
           supervisor: "مشرف متابعة",
         }[k.members[0].role],
       })),
@@ -4733,12 +4909,15 @@ async function handle(req, env) {
       }),
     );
   }
-  if (p === "/api/agent/task-checklist") {
+  if (p === "/api/agent/task-checklist" || p === "/api/agent/task-guide") {
+    const guideOnly = p === "/api/agent/task-guide";
     const input = taskChecklistInput(b);
     const committeeId = string(b.committee_id, 100);
     const taskId = b.id ? string(b.id, 100) : null;
+    if (guideOnly && !taskId) fail("اختر المهمة لإعداد دليلها");
     const authorize = async (access) => {
       access.need("assistant", "view");
+      if (guideOnly) access.need("assistant", "create");
       const committee = await record(db, "committees", committeeId);
       const project = await record(db, "projects", committee.project_id);
       const task = taskId ? await record(db, "tasks", taskId) : null;
@@ -4747,18 +4926,19 @@ async function handle(req, env) {
         committee_id: committeeId,
         created_by: access.u.id,
       };
-      access.need("tasks", task ? "edit" : "create", candidate);
+      if (!guideOnly) access.need("tasks", task ? "edit" : "create", candidate);
       if (task) {
         access.need("tasks", "view", task);
-        access.need("tasks", "assign", task);
+        if (!guideOnly) access.need("tasks", "assign", task);
         if (
           task.project_id !== project.id ||
           parse(task.meta).committee_id !== committeeId
         )
           fail("اختر لجنة المهمة نفسها", 403);
         if (
-          ["review", "done"].includes(task.status) ||
-          (parse(task.meta).checklist || []).some((step) => step.done)
+          !guideOnly &&
+          (["review", "done"].includes(task.status) ||
+            (parse(task.meta).checklist || []).some((step) => step.done))
         )
           fail("لا يمكن إعادة توليد خطوات مهمة بدأ إنجازها", 409);
       }

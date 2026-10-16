@@ -62,12 +62,12 @@ function Hero() {
             مهرجان الملك عبدالعزيز للإبل · الصياهد
           </span>
           <h1 id="heritage-title">
-            النائلات<span>للأصالة راية.</span>
+            النائلات<span>للأصالة راية</span>
           </h1>
           <p>
-            نوادر الوضح، وعزيمةٌ تتجدد.
+            نوادر الوضح، وعزيمةٌ تتجدد
             <br />
-            إرثٌ أصيل، وإنجازٌ يتجدد في الميدان.
+            إرثٌ أصيل، وإنجازٌ يتجدد في الميدان
           </p>
           <a className="nw-scroll" href="#nailat-achievements">
             <b aria-hidden="true">↓</b>اكتشف مسيرة النائلات
@@ -76,7 +76,7 @@ function Hero() {
       </div>
       <div className="nw-hero-foot">
         <span>منقية الشيخ عبدالله بن عامر النهدي</span>
-        <span>أصالة الموروث. ورفعة الحضور.</span>
+        <span>أصالة الموروث ورفعة الحضور</span>
       </div>
     </section>
   );
@@ -92,14 +92,14 @@ function Story() {
       <Reveal>
         <span className="nw-section-label">إرث نعتز به</span>
         <h2 id="story-title">
-          في الوضح أصالة.<em>وللنائلات مكانة.</em>
+          في الوضح أصالة<em>وللنائلات مكانة</em>
         </h2>
       </Reveal>
       <Reveal className="nw-story-copy">
         <p>
-          يجمعنا الشغف بالإبل، والاعتزاز بموروثٍ نحمله إلى الأجيال. وفي ميادين
+          يجمعنا الشغف بالإبل والاعتزاز بموروثٍ نحمله إلى الأجيال وفي ميادين
           مهرجان الملك عبدالعزيز للإبل، تتجدد مسيرة النائلات؛ بعنايةٍ بالمنقية،
-          وعزيمةٍ على المنافسة، وفرحةٍ بكل إنجاز.
+          وعزيمةٍ على المنافسة، وفرحةٍ بكل إنجاز
         </p>
         <img
           src="/brand/signature.png"
@@ -129,16 +129,16 @@ function Honor() {
         />
         <span className="nw-section-label">لحظة التكريم</span>
         <h2 id="honor-title">
-          تشريفٌ نعتزّ به.
+          تشريفٌ نعتزّ به
           <br />
-          <em>وفخرٌ نحمله.</em>
+          <em>وفخرٌ نحمله</em>
         </h2>
         <p>
-          سمو ولي العهد الأمير محمد بن سلمان يكرّم الشيخ عبدالله بن عامر النهدي،
-          في ختام النسخة 9 من مهرجان الملك عبدالعزيز للإبل.
+          سمو ولي العهد الأمير محمد بن سلمان يكرّم الشيخ عبدالله بن عامر النهدي
+          في ختام النسخة 9 من مهرجان الملك عبدالعزيز للإبل
         </p>
         <div className="nw-honor-caption">
-          فرحة الإنجاز تكتمل بهذا التشريف.
+          فرحة الإنجاز تكتمل بهذا التشريف
           <br />
           <span>
             قصر اليمامة · الرياض · <bdi>2025</bdi>
@@ -169,12 +169,12 @@ function Achievements({ seasons }: { seasons: HeritageSeason[] }) {
         <div>
           <span className="nw-section-label">محطات الحضور</span>
           <h2 id="archive-title">
-            بيارقٌ ترتفع.
+            بيارقٌ ترتفع
             <br />
-            <em>ومسيرةٌ تُروى.</em>
+            <em>ومسيرةٌ تُروى</em>
           </h2>
         </div>
-        <p>تصفّح المواسم، واكتشف نتائج النائلات في أشواط الجمل والفرديات.</p>
+        <p>تصفّح المواسم واكتشف نتائج النائلات في أشواط الجمل والفرديات</p>
       </Reveal>
       <SeasonTabs seasons={seasons} />
       <div className="nw-archive-note">
@@ -201,11 +201,11 @@ function FieldPresence() {
         />
       </figure>
       <div className="nw-panorama-caption">
-        <span>شغفٌ يُورث. وعنايةٌ تُثمر.</span>
+        <span>شغفٌ يُورث وعنايةٌ تُثمر</span>
         <h2>
-          قريبون من إرثنا.
+          قريبون من إرثنا
           <br />
-          ماضون بعزيمتنا.
+          ماضون بعزيمتنا
         </h2>
       </div>
     </section>
@@ -220,10 +220,10 @@ function DiwanEntry() {
       aria-labelledby="entry-title"
     >
       <span className="nw-section-label">ديوان النائلات</span>
-      <h2 id="entry-title">جهودٌ تتكامل. وإنجازٌ يتحقق.</h2>
+      <h2 id="entry-title">جهودٌ تتكامل وإنجازٌ يتحقق</h2>
       <p>
         هنا تجتمع جهود فريق النائلات، وتنتظم أعمال اللجان، وتكتمل تفاصيل
-        المشاركة.
+        المشاركة
       </p>
       <div className="nw-diwan-actions">
         <EntryLink />

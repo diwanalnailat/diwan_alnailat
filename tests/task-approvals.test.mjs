@@ -20,7 +20,8 @@ async function submit(a, id) {
     ok(await a.req("tasks/checklist", { id, item_id: step.id, done: true, version: task.version }, a.member));
     task = await row(a, "nl_tasks", id);
   }
-  ok(await a.req("tasks/transition", { id, version: task.version, status: "review", note: "Execution completed with all checklist evidence" }, a.member));
+  const proof = await upload(a, "tasks", "proof", a.member, { entity: id, attach_later: "true" });
+  ok(await a.req("tasks/transition", { id, version: task.version, status: "review", note: "Execution completed with all checklist evidence", files: [proof] }, a.member));
   return row(a, "nl_tasks", id);
 }
 async function complete(a, extra = {}, reviewer = a.manager) {

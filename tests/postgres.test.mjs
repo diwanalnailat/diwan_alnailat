@@ -4,6 +4,52 @@ import { postgresStatement } from "../lib/postgres.js";
 import { postgresTestDatabase } from "./postgres-support.mjs";
 import { limits } from "../lib/integrations.js";
 
+test("serialized JSON lists bind as text before PostgreSQL expands them", async () => {
+  const db = await postgresTestDatabase();
+  try {
+    const source = "SELECT value FROM json_each(?)";
+    // Postgres.js chooses its serializer from the server's parameter type.
+    // JSONB here would JSON.stringify an already encoded string a second time.
+    await db
+      .prepare("PREPARE diwan_json_list AS " + postgresStatement(source))
+      .run();
+    assert.equal(
+      (
+        await db
+          .prepare(
+            "SELECT parameter_types[1]::text AS type FROM pg_prepared_statements WHERE name='diwan_json_list'",
+          )
+          .first()
+      ).type,
+      "text",
+    );
+    const values = [
+      "synthetic-asset",
+      "اسم بالعربية",
+      'a"b',
+      "'); DROP TABLE nl_assets; --",
+    ];
+    assert.deepEqual(
+      (await db.prepare(source).bind(JSON.stringify(values)).all()).results.map(
+        (row) => row.value,
+      ),
+      values,
+    );
+    assert.deepEqual((await db.prepare(source).bind("[]").all()).results, []);
+    const multiple = await db
+      .prepare(
+        "SELECT a.value AS first, b.value AS second FROM json_each(?) a CROSS JOIN json_each(?) b",
+      )
+      .bind('["first"]', '["second"]')
+      .first();
+    assert.deepEqual(multiple, { first: "first", second: "second" });
+    await assert.rejects(db.prepare(source).bind('"scalar"').all(), /scalar/);
+    await db.prepare("DEALLOCATE diwan_json_list").run();
+  } finally {
+    await db.close();
+  }
+});
+
 test("PostgreSQL keeps parameter values separate and rolls back entire guarded batches", async () => {
   assert.equal(
     postgresStatement("SELECT '?' AS literal, ? AS value, 'it''s ?' AS quoted"),
