@@ -2,9 +2,11 @@
 
 Evidence only; this record does not authorize changes. Updated 2026-10-17 Asia/Riyadh.
 
-Current work: user requested final handoff/GitHub/Vercel synchronization before closing Visual Studio Code. Client feedback and asset fix are live (application e231f51), canonical domain https://diwanalnailat.com and new Green API sender settings are deployed. This release changes documentation only; exact deployment verification follows the push. Account continuity: [CODEX_ACCOUNT_HANDOFF.md](CODEX_ACCOUNT_HANDOFF.md). Operational backup/scanning/capacity gates remain open.
+Current work: closing handoff synchronized and verified; documentation release f7f46ee is live on existing Vercel project. Client feedback/asset fix remain application e231f51; canonical domain https://diwanalnailat.com and new Green API sender settings remain deployed. This verification outcome is a documentation-only follow-up. Account continuity: [CODEX_ACCOUNT_HANDOFF.md](CODEX_ACCOUNT_HANDOFF.md). Operational backup/scanning/capacity gates remain open.
 
 ## Current outcome
+
+- HANDOFF VERIFIED 2026-10-16T22:19:56.882Z: exact f7f46ee5a1a5a20d634e992665834a1f9be360e3 GitHub commit has successful Vercel Production deployment 7cqfgsSJvmbpcJvGiVCJaAiXzWG9. Primary domain serves four matching application asset hashes; health200; unauthenticated state/extract/task-upload/cron401, HEAD cron405. www and old Vercel domain redirect308 preserving /login; canonical login-origin guard accepts safe unknown action404 and rejects foreign origin403. Evidence %TEMP%/diwan-account-close-content-release.json; final documentation-commit verification stored in diwan-account-close-release.json. No business/provider messages, secret changes or browser inspection. Closing editor does not stop hosted production.
 
 - HANDOFF PREPARED 2026-10-16T22:18:57.476Z: updated account handoff and historical pointer with client feedback, 1GiB uploads, PostgreSQL asset fix, canonical domain/redirects, new Green API configuration and verification limits. origin/main equals ab5ca55 before changes. All32 non-documentation source/test/dependency/config hashes match final test evidence; reuse257 general +257 PostgreSQL tests/build. Three documentation files only; no secrets or full sender phone copied. GitHub/Vercel publication and canonical-domain verification required before reporting completion. Evidence will be %TEMP%/diwan-account-close-release.json.
 
