@@ -2,9 +2,11 @@
 
 Evidence only; this record does not authorize changes. Updated 2026-10-17 Asia/Riyadh.
 
-Current work: closing handoff synchronized and verified; documentation release f7f46ee is live on existing Vercel project. Client feedback/asset fix remain application e231f51; canonical domain https://diwanalnailat.com and new Green API sender settings remain deployed. This verification outcome is a documentation-only follow-up. Account continuity: [CODEX_ACCOUNT_HANDOFF.md](CODEX_ACCOUNT_HANDOFF.md). Operational backup/scanning/capacity gates remain open.
+Current work: fixing mobile honor-card heading wrapping after closing handoff; removed only mobile rule hiding its existing line break. Full build passed and publication follows. Prior app/domain/Green API changes preserved. Account continuity: [CODEX_ACCOUNT_HANDOFF.md](CODEX_ACCOUNT_HANDOFF.md). Operational backup/scanning/capacity gates remain open.
 
 ## Current outcome
+
+- HONOR HEADING READY 2026-10-17T10:54:30.088Z: screenshot traced to public/heritage.css mobile rule hiding .nw-honor-copy h2 br, joining adjacent Arabic title phrases and orphaning the final word. Removed the three-line rule, preserving intended white first line/gold second line in both React and legacy markup; typography and desktop unchanged. Source/cascade reviewed, no browser required. Node22 npm run build passed, generated/dist refreshed and heritage CSS hashes match; no tests added or full backend suite rerun for this isolated CSS fix. Log %TEMP%/diwan-honor-heading-build.log; evidence diwan-honor-heading-evidence.json. GitHub/Vercel publication pending.
 
 - HANDOFF VERIFIED 2026-10-16T22:19:56.882Z: exact f7f46ee5a1a5a20d634e992665834a1f9be360e3 GitHub commit has successful Vercel Production deployment 7cqfgsSJvmbpcJvGiVCJaAiXzWG9. Primary domain serves four matching application asset hashes; health200; unauthenticated state/extract/task-upload/cron401, HEAD cron405. www and old Vercel domain redirect308 preserving /login; canonical login-origin guard accepts safe unknown action404 and rejects foreign origin403. Evidence %TEMP%/diwan-account-close-content-release.json; final documentation-commit verification stored in diwan-account-close-release.json. No business/provider messages, secret changes or browser inspection. Closing editor does not stop hosted production.
 
